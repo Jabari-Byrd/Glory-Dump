@@ -206,15 +206,6 @@ uint256 multiplier = ratio.pow(GRIEF_TAX_EXPONENT);
 - **No keepers**: Community-driven automation
 - **No seed liquidity**: Market-driven price discovery
 
-## 🐛 Bug Bounty
-
-**5% of GLORY supply (50,000 GLORY)** reserved for the first person to find a critical bug.
-
-To claim:
-```solidity
-gloryToken.claimBugBounty("Description of the bug found");
-```
-
 ## 📝 License
 
 MIT License - Use at your own risk.
@@ -225,12 +216,6 @@ MIT License - Use at your own risk.
 2. Create a feature branch
 3. Add tests for new functionality
 4. Submit a pull request
-
-## 📞 Support
-
-- **Discord**: [Join our community](https://discord.gg/dumpglory)
-- **Twitter**: [@DumpGloryToken](https://twitter.com/DumpGloryToken)
-- **Documentation**: [docs.dumpglory.com](https://docs.dumpglory.com)
 
 ---
 

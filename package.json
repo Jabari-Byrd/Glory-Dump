@@ -1,7 +1,7 @@
 {
-  "name": "dump-glory-token",
+  "name": "glory-dump-token",
   "version": "1.0.0",
-  "description": "DUMP/GLORY: The Reverse Wealth, Self-Draining, PvP Meme Token",
+  "description": "GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
@@ -26,7 +26,8 @@
     "defi",
     "meme-token",
     "pvp",
-    "game"
+    "game",
+    "glory-dump"
   ],
   "author": "Prime Anomaly",
   "license": "MIT"

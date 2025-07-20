@@ -1,5 +1,5 @@
-// DUMP/GLORY Frontend Application
-class DumpGloryApp {
+// GLORY/DUMP Frontend Application
+class GloryDumpApp {
     constructor() {
         this.provider = null;
         this.signer = null;
@@ -539,5 +539,5 @@ class DumpGloryApp {
 
 // Initialize the app when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    window.dumpGloryApp = new DumpGloryApp();
+    window.gloryDumpApp = new GloryDumpApp();
 });

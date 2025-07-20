@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("DUMP/GLORY Token System", function () {
+describe("GLORY/DUMP Token System", function () {
   let dumpToken, gloryToken, feePot, bridgeGatekeeper;
   let owner, user1, user2, user3;
   let initialSupply;

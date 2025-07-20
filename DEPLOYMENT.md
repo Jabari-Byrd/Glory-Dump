@@ -1,6 +1,6 @@
-# DUMP/GLORY Deployment Guide
+# GLORY/DUMP Deployment Guide
 
-This guide will walk you through deploying the DUMP/GLORY token system to Base network.
+This guide will walk you through deploying the GLORY/DUMP token system to Base network.
 
 ## Prerequisites
 

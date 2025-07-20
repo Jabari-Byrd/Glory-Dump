@@ -1,10 +1,10 @@
-# DUMP/GLORY: The Reverse Wealth, Self-Draining, PvP Meme Token
+# GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token
 
 > **"How Not to Do Money" Edition** - A token that hates being held, a leaderboard of the chronically unwealthy, a reward system for staying poor.
 
 ## 🎯 Concept
 
-DUMP/GLORY flips the entire idea of a "wealth" token upside down:
+GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 - **The less DUMP you have, the higher you rank**
 - **The more DUMP you receive, the more you must scramble to dump it on someone else**
 - **Periodic leaderboards award GLORY to those who held the least DUMP**

@@ -49,24 +49,49 @@
             </div>
 
             <div class="game-actions">
-                <h2>Dump DUMP</h2>
-                <div class="dump-interface">
-                    <div class="input-group">
-                        <label for="dumpTarget">Target Address:</label>
-                        <input type="text" id="dumpTarget" placeholder="0x..." />
-                    </div>
-                    <div class="input-group">
-                        <label for="dumpAmount">Amount to Dump:</label>
-                        <input type="range" id="dumpSlider" min="0" max="100" value="10" />
-                        <div class="slider-value">
-                            <span id="dumpAmount">0</span> DUMP
+                <div class="action-section">
+                    <h2>🎯 Dump DUMP</h2>
+                    <div class="dump-interface">
+                        <div class="input-group">
+                            <label for="dumpTarget">Target Address:</label>
+                            <input type="text" id="dumpTarget" placeholder="0x..." />
                         </div>
+                        <div class="input-group">
+                            <label for="dumpAmount">Amount to Dump:</label>
+                            <input type="range" id="dumpSlider" min="0" max="100" value="10" />
+                            <div class="slider-value">
+                                <span id="dumpAmount">0</span> DUMP
+                            </div>
+                        </div>
+                        <div class="cooldown-info">
+                            <div>Cooldown: <span id="cooldownTime">0s</span></div>
+                            <div>Fee: <span id="transferFee">0</span> DUMP</div>
+                        </div>
+                        <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
                     </div>
-                    <div class="cooldown-info">
-                        <div>Cooldown: <span id="cooldownTime">0s</span></div>
-                        <div>Fee: <span id="transferFee">0</span> DUMP</div>
+                </div>
+
+                <div class="action-section">
+                    <h2>🦹‍♂️ Steal DUMP</h2>
+                    <div class="theft-interface">
+                        <div class="input-group">
+                            <label for="theftTarget">Victim Address:</label>
+                            <input type="text" id="theftTarget" placeholder="0x..." />
+                        </div>
+                        <div class="input-group">
+                            <label for="theftAmount">Amount to Steal:</label>
+                            <input type="range" id="theftSlider" min="0" max="100" value="10" />
+                            <div class="slider-value">
+                                <span id="theftAmount">0</span> DUMP
+                            </div>
+                        </div>
+                        <div class="theft-info">
+                            <div>Cooldown: <span id="theftCooldownTime">0s</span></div>
+                            <div>Fee: <span id="theftFee">0</span> DUMP</div>
+                            <div>Theft Cost: <span id="theftCost">0</span> DUMP</div>
+                        </div>
+                        <button id="stealButton" class="btn btn-warning">STEAL IT!</button>
                     </div>
-                    <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
                 </div>
             </div>
 

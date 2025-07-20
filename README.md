@@ -27,10 +27,27 @@ DUMP/GLORY flips the entire idea of a "wealth" token upside down:
 - **Continuous calculation**: Applied on every interaction
 - **Staked amounts also decay**: No escape from the rot
 
+#### 🦹‍♂️ Theft System
+- **Steal DUMP from others**: Force tokens from any active participant
+- **Same 0.3% fee**: Theft incurs the same fee as transfers
+- **Amount-scaled cooldowns**: Bigger thefts = longer cooldowns (30s to 1h)
+- **Epoch-weighted costs**: Costs increase throughout the entire epoch:
+  - **Days 1-23**: Gradual increase (5% to 15% base cost)
+  - **Last week**: Linear increase (15% to 25% base cost)
+  - **Last day**: Quadratic increase (25% to 500% base cost)
+  - **Last hour**: Exponential increase (500% to 5000% base cost - MEME TERRITORY!)
+- **Strategic penalty**: Thieves pay a cost that makes them "richer" (worse ranking)
+- **No consent required**: Pure chaos - anyone can steal from anyone
+
 #### ⏱️ Cooldown Mechanics
 - **Amount-scaled cooldowns**: The more you dump, the longer you wait
 - **Formula**: `cooldown = T_min + (T_max - T_min) * (amount/supply)^k`
 - **Quadratic scaling**: Small dumps = short cooldown, large dumps = long cooldown
+- **Epoch-weighted scaling**: Cooldowns increase throughout the epoch:
+  - **Days 1-23**: Normal cooldowns
+  - **Last week**: 1x to 2x longer cooldowns
+  - **Last day**: 1x to 3x longer cooldowns
+  - **Last hour**: 1x to 5x longer cooldowns (anti-spam)
 
 #### 🛡️ Sybil Resistance
 - **Minimum stake required**: 0.05% of total supply to participate
@@ -103,6 +120,9 @@ dumpToken.stakeForParticipation(minStake);
 // Transfer DUMP (with cooldown and fees)
 dumpToken.transfer(target, amount);
 
+// Steal DUMP from others (with cooldown, fees, and costs)
+dumpToken.stealDump(victim, amount);
+
 // Check your rank
 int256 rank = gloryToken.getUserRank(yourAddress);
 
@@ -146,6 +166,34 @@ for (uint256 i = 0; i < daysSinceUpdate; i++) {
     demurrageMultiplier = demurrageMultiplier
         .mul(DEMURRAGE_BASIS_POINTS.sub(DAILY_DEMURRAGE_RATE))
         .div(DEMURRAGE_BASIS_POINTS);
+}
+```
+
+### Theft Implementation
+```solidity
+// Epoch-weighted theft cost calculation with continuous scaling
+uint256 baseCost = amount.mul(500).div(DEMURRAGE_BASIS_POINTS); // 5% base cost
+
+if (timeUntilEpochEnd < 1 hours) {
+    // Last hour: EXPONENTIAL increase (meme territory)
+    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 hours);
+    uint256 multiplier = 1e18.mul(1e18).div(timeRatio.pow(3)); // Cubic increase
+    baseCost = baseCost.mul(multiplier).div(1e18);
+} else if (timeUntilEpochEnd < 1 days) {
+    // Last day: QUADRATIC increase (high risk)
+    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 days);
+    uint256 multiplier = 1e18.add(19e18.mul(1e18.sub(timeRatio.pow(2))).div(1e18));
+    baseCost = baseCost.mul(multiplier).div(1e18);
+} else if (timeUntilEpochEnd < 7 days) {
+    // Last week: LINEAR increase (moderate risk)
+    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(7 days);
+    uint256 multiplier = 1e18.add(4e18.mul(1e18.sub(timeRatio)).div(1e18));
+    baseCost = baseCost.mul(multiplier).div(1e18);
+} else {
+    // First 23 days: GRADUAL increase (low risk)
+    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(epochDuration);
+    uint256 multiplier = 1e18.add(2e18.mul(1e18.sub(timeRatio)).div(1e18));
+    baseCost = baseCost.mul(multiplier).div(1e18);
 }
 ```
 

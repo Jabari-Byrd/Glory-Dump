@@ -62,6 +62,11 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
   - **🥈 Top 2-10%**: Share 40% of total rewards (exponential decay)
   - **🥉 Middle 10-49%**: Share 20% of total rewards (linear decay)
   - **📉 Bottom 50%**: Share 5% of total rewards (minimal amounts)
+- **Bonus Epochs**: Special epochs where extra GLORY rewards are distributed, triggered by rare on-chain events:
+  - **Milestones**: New records for DUMP volume, unique players, active addresses, GLORY price, DUMP volatility, or liquidity (must exceed previous record by 10%).
+  - **Random Events**: 1-in-50 chance per epoch for a random bonus.
+  - **Easter Eggs**: Blockhash with repeating digits (e.g., 777), or palindromic epoch numbers (e.g., 121, 1331).
+  - **Stacking/Ultra Bonus**: If multiple bonus triggers happen in the same epoch, the bonus multiplier increases (e.g., 2x for two triggers, 3x+ for three or more, called an "ultra bonus").
 
 #### 💰 Fee & Buyback System
 - **0.3% transfer fee**: Collected in DUMP

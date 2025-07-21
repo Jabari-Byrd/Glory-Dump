@@ -38,6 +38,22 @@ contract GloryToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public bugBountyReserve;
     uint256 public totalRewardsDistributed;
     
+    // Add for bonus epoch logic
+    uint256 public highestEpochVolume;
+    uint256 public highestUniquePlayers;
+    mapping(uint256 => bool) public isBonusEpoch;
+    event BonusEpoch(uint256 indexed epoch, uint256 gloryAmount, string reason);
+    event BurnedEpoch(uint256 indexed epoch, uint256 gloryAmount);
+    
+    // Bonus triggers and multipliers
+    uint256 public milestoneThresholdPercent = 10; // 10% increase required
+    uint256 public highestTransfers;
+    uint256 public highestActiveAddresses;
+    uint256 public highestLiquidity;
+    uint256 public highestGloryPrice;
+    uint256 public highestDumpVolatility;
+    event UltraBonusEpoch(uint256 indexed epoch, uint256 gloryAmount, uint256 multiplier, string reason);
+    
     // Bug bounty system
     struct BugReport {
         address reporter;
@@ -178,17 +194,124 @@ contract GloryToken is ERC20, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Calculate total rewards for the epoch
+     * @dev Calculate total rewards for the epoch (dynamic: deflationary by default, rare bonus epochs)
      * @return Total rewards available
      */
-    function calculateEpochRewards() internal view returns (uint256) {
-        // Base reward per epoch (can be adjusted)
-        uint256 baseReward = 10000 * 10**decimals(); // 10k GLORY per epoch
-        
-        // Add any additional rewards from fee pot buyback
-        // TODO: Implement fee pot buyback mechanism
-        
-        return baseReward;
+    function calculateEpochRewards() internal returns (uint256) {
+        uint256 baseReward = 10000 * 10**decimals();
+        uint256 buybackReward = getBuybackGlory();
+        (uint256 bonusMultiplier, string memory reason, bool ultra) = checkBonusEpoch();
+        uint256 totalReward = baseReward;
+        if (bonusMultiplier > 0) {
+            totalReward += buybackReward * bonusMultiplier;
+            if (ultra) {
+                emit UltraBonusEpoch(currentEpoch, buybackReward * bonusMultiplier, bonusMultiplier, reason);
+            } else {
+                emit BonusEpoch(currentEpoch, buybackReward * bonusMultiplier, reason);
+            }
+        } else {
+            if (buybackReward > 0) {
+                _burn(address(this), buybackReward);
+                emit BurnedEpoch(currentEpoch, buybackReward);
+            }
+        }
+        return totalReward;
+    }
+
+    // Helper to get GLORY from FeePot (assumes FeePot transfers GLORY to this contract after buyback)
+    function getBuybackGlory() internal view returns (uint256) {
+        // For simplicity, assume all GLORY sent to this contract (not bug bounty reserve) is buyback
+        uint256 contractBalance = balanceOf(address(this));
+        return contractBalance > bugBountyReserve ? contractBalance - bugBountyReserve : 0;
+    }
+
+    // --- Bonus Epoch Logic ---
+    function checkBonusEpoch() internal returns (uint256, string memory, bool) {
+        uint256 triggers = 0;
+        string memory reasons = "";
+        // 1. Volume milestone
+        uint256 epochVolume = dumpToken.getEpochVolume(currentEpoch);
+        if (epochVolume > highestEpochVolume + (highestEpochVolume * milestoneThresholdPercent / 100)) {
+            highestEpochVolume = epochVolume;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Volume milestone! "));
+        }
+        // 2. Unique players milestone
+        uint256 uniquePlayers = dumpToken.getUniquePlayers(currentEpoch);
+        if (uniquePlayers > highestUniquePlayers + (highestUniquePlayers * milestoneThresholdPercent / 100)) {
+            highestUniquePlayers = uniquePlayers;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Unique players milestone! "));
+        }
+        // 3. Most active addresses
+        uint256 activeAddresses = dumpToken.getActiveAddresses(currentEpoch);
+        if (activeAddresses > highestActiveAddresses + (highestActiveAddresses * milestoneThresholdPercent / 100)) {
+            highestActiveAddresses = activeAddresses;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Active address milestone! "));
+        }
+        // 4. GLORY price increase
+        uint256 gloryPrice = feePot.getGloryPrice();
+        if (gloryPrice > highestGloryPrice + (highestGloryPrice * milestoneThresholdPercent / 100)) {
+            highestGloryPrice = gloryPrice;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "GLORY price milestone! "));
+        }
+        // 5. DUMP price volatility
+        uint256 dumpVolatility = feePot.getDumpVolatility();
+        if (dumpVolatility > highestDumpVolatility + (highestDumpVolatility * milestoneThresholdPercent / 100)) {
+            highestDumpVolatility = dumpVolatility;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "DUMP volatility milestone! "));
+        }
+        // 6. Liquidity in the pool
+        uint256 liquidity = feePot.getLiquidity();
+        if (liquidity > highestLiquidity + (highestLiquidity * milestoneThresholdPercent / 100)) {
+            highestLiquidity = liquidity;
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Liquidity milestone! "));
+        }
+        // 7. Random bonus (rarer: 1 in 50)
+        bool random = (uint256(keccak256(abi.encodePacked(blockhash(block.number - 1), currentEpoch, block.timestamp))) % 50 == 0);
+        if (random) {
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Random bonus! "));
+        }
+        // 8. Easter egg: blockhash last 3 digits same
+        uint256 hashNum = uint256(blockhash(block.number - 1));
+        if (hasRepeatingDigits(hashNum, 3)) {
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Repeating digits! "));
+        }
+        // 9. Easter egg: epoch palindrome
+        if (isPalindrome(currentEpoch)) {
+            triggers++;
+            reasons = string(abi.encodePacked(reasons, "Palindrome epoch! "));
+        }
+        // Multiplier: 1x for 1, 2x for 2, 3x for 3+ (ultra bonus)
+        uint256 bonusMultiplier = triggers;
+        bool ultra = triggers >= 3;
+        isBonusEpoch[currentEpoch] = (bonusMultiplier > 0);
+        return (bonusMultiplier, reasons, ultra);
+    }
+
+    // --- Helper functions ---
+    function hasRepeatingDigits(uint256 number, uint8 count) internal pure returns (bool) {
+        uint256 lastDigit = number % 10;
+        for (uint8 i = 1; i < count; i++) {
+            number /= 10;
+            if (number % 10 != lastDigit) return false;
+        }
+        return true;
+    }
+    function isPalindrome(uint256 num) internal pure returns (bool) {
+        uint256 reversed = 0;
+        uint256 original = num;
+        while (num != 0) {
+            reversed = reversed * 10 + num % 10;
+            num /= 10;
+        }
+        return original == reversed;
     }
     
     /**

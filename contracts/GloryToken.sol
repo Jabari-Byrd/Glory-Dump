@@ -118,21 +118,88 @@ contract GloryToken is ERC20, ReentrancyGuard, Ownable {
         _transfer(msg.sender, address(this), bugBountyReserve);
     }
     
-    /**
-     * @dev Record a user's average DUMP balance for the current epoch
-     * @param user Address to record
-     * @param averageBalance Average DUMP balance over the epoch
-     */
+    // --- Incremental Leaderboard (Skip List) ---
+    uint256 private constant MAX_LEVEL = 8; // Supports up to 2^8 = 256 levels (enough for thousands of users)
+    struct SkipNode {
+        address user;
+        uint256 balance;
+        address[MAX_LEVEL] forward;
+        bool exists;
+        uint8 level;
+    }
+    mapping(address => SkipNode) public skipNodes;
+    address public skipListHead;
+    uint256 public skipListSize;
+
+    // Pseudo-random level generator (deterministic, not secure, but fine for leaderboard)
+    function randomLevel(address user, uint256 balance) internal pure returns (uint8) {
+        uint256 hash = uint256(keccak256(abi.encodePacked(user, balance)));
+        uint8 lvl = 1;
+        while ((hash & 0xFF) < 64 && lvl < MAX_LEVEL) { // 25% chance to go up each level
+            lvl++;
+            hash >>= 8;
+        }
+        return lvl;
+    }
+
+    function updateSkipList(address user, uint256 newBalance) internal {
+        if (skipNodes[user].exists) {
+            removeFromSkipList(user);
+        }
+        insertIntoSkipList(user, newBalance);
+    }
+
+    function insertIntoSkipList(address user, uint256 balance) internal {
+        uint8 lvl = randomLevel(user, balance);
+        address[MAX_LEVEL] memory update;
+        address x = skipListHead;
+        for (uint8 i = MAX_LEVEL; i > 0; i--) {
+            while (skipNodes[skipNodes[x].forward[i-1]].exists && skipNodes[skipNodes[x].forward[i-1]].balance < balance) {
+                x = skipNodes[x].forward[i-1];
+            }
+            update[i-1] = x;
+        }
+        SkipNode storage node = skipNodes[user];
+        node.user = user;
+        node.balance = balance;
+        node.exists = true;
+        node.level = lvl;
+        for (uint8 i = 0; i < lvl; i++) {
+            node.forward[i] = skipNodes[update[i]].forward[i];
+            skipNodes[update[i]].forward[i] = user;
+        }
+        skipListSize++;
+    }
+
+    function removeFromSkipList(address user) internal {
+        if (!skipNodes[user].exists) return;
+        address[MAX_LEVEL] memory update;
+        address x = skipListHead;
+        uint256 balance = skipNodes[user].balance;
+        for (uint8 i = MAX_LEVEL; i > 0; i--) {
+            while (skipNodes[skipNodes[x].forward[i-1]].exists && skipNodes[skipNodes[x].forward[i-1]].balance < balance) {
+                x = skipNodes[x].forward[i-1];
+            }
+            update[i-1] = x;
+        }
+        for (uint8 i = 0; i < skipNodes[user].level; i++) {
+            if (skipNodes[update[i]].forward[i] == user) {
+                skipNodes[update[i]].forward[i] = skipNodes[user].forward[i];
+            }
+        }
+        skipNodes[user].exists = false;
+        skipListSize--;
+    }
+
+    // Override recordEpochBalance to update skip list leaderboard
     function recordEpochBalance(address user, uint256 averageBalance) external onlyDumpToken {
         EpochData storage epoch = epochs[currentEpoch];
-        
-        // Add user to participants if not already recorded
         if (epoch.averageDumpHeld[user] == 0) {
             epoch.participants.push(user);
             epoch.totalParticipants = epoch.totalParticipants + 1;
         }
-        
         epoch.averageDumpHeld[user] = averageBalance;
+        updateSkipList(user, averageBalance);
     }
     
     /**
@@ -379,26 +446,16 @@ contract GloryToken is ERC20, ReentrancyGuard, Ownable {
         }
     }
     
-    /**
-     * @dev Sort participants by average DUMP held (ascending)
-     * @param epochNumber Epoch to sort
-     * @return Sorted array of participant addresses
-     */
-    function sortParticipantsByDumpHeld(uint256 epochNumber) internal view returns (address[] memory) {
-        EpochData storage epoch = epochs[epochNumber];
-        address[] memory participants = epoch.participants;
-        
-        // Simple bubble sort (for small datasets)
-        for (uint256 i = 0; i < participants.length; i++) {
-            for (uint256 j = i + 1; j < participants.length; j++) {
-                if (epoch.averageDumpHeld[participants[i]] > epoch.averageDumpHeld[participants[j]]) {
-                    address temp = participants[i];
-                    participants[i] = participants[j];
-                    participants[j] = temp;
-                }
-            }
+    // Return sorted participants from skip list
+    function sortParticipantsByDumpHeld(uint256 /*epochNumber*/) internal view returns (address[] memory) {
+        address[] memory participants = new address[](skipListSize);
+        address current = skipNodes[skipListHead].forward[0];
+        uint256 idx = 0;
+        while (current != address(0)) {
+            participants[idx] = current;
+            current = skipNodes[current].forward[0];
+            idx++;
         }
-        
         return participants;
     }
     

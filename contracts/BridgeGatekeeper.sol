@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./DumpToken.sol";
 
 /**
@@ -11,7 +10,6 @@ import "./DumpToken.sol";
  * @author Prime Anomaly
  */
 contract BridgeGatekeeper is ReentrancyGuard {
-    using SafeMath for uint256;
 
     // Constants
     uint256 public constant MAX_TRANSFER_PER_EPOCH = 1000000 * 10**18; // 1M DUMP per epoch
@@ -68,19 +66,19 @@ contract BridgeGatekeeper is ReentrancyGuard {
         require(amount > 0, "Cannot mint zero amount");
         
         // Check cooldown
-        require(block.timestamp >= lastBridgeTransfer[to].add(COOLDOWN_PERIOD), "Cooldown active");
+        require(block.timestamp >= lastBridgeTransfer[to] + COOLDOWN_PERIOD, "Cooldown active");
         
         // Check epoch limits
         uint256 currentEpoch = dumpToken.currentEpoch();
-        require(epochTransferAmount[to].add(amount) <= MAX_TRANSFER_PER_EPOCH, "Epoch limit exceeded");
+        require(epochTransferAmount[to] + amount <= MAX_TRANSFER_PER_EPOCH, "Epoch limit exceeded");
         
         // Check global epoch limit
-        require(epochTotalTransfers[currentEpoch].add(amount) <= MAX_TRANSFER_PER_EPOCH.mul(100), "Global epoch limit exceeded");
+        require(epochTotalTransfers[currentEpoch] + amount <= MAX_TRANSFER_PER_EPOCH * 100, "Global epoch limit exceeded");
         
         // Update tracking
         lastBridgeTransfer[to] = block.timestamp;
-        epochTransferAmount[to] = epochTransferAmount[to].add(amount);
-        epochTotalTransfers[currentEpoch] = epochTotalTransfers[currentEpoch].add(amount);
+        epochTransferAmount[to] = epochTransferAmount[to] + amount;
+        epochTotalTransfers[currentEpoch] = epochTotalTransfers[currentEpoch] + amount;
         
         // Mint tokens
         dumpToken.bridgeMint(to, amount);
@@ -98,19 +96,19 @@ contract BridgeGatekeeper is ReentrancyGuard {
         require(amount > 0, "Cannot burn zero amount");
         
         // Check cooldown
-        require(block.timestamp >= lastBridgeTransfer[from].add(COOLDOWN_PERIOD), "Cooldown active");
+        require(block.timestamp >= lastBridgeTransfer[from] + COOLDOWN_PERIOD, "Cooldown active");
         
         // Check epoch limits
         uint256 currentEpoch = dumpToken.currentEpoch();
-        require(epochTransferAmount[from].add(amount) <= MAX_TRANSFER_PER_EPOCH, "Epoch limit exceeded");
+        require(epochTransferAmount[from] + amount <= MAX_TRANSFER_PER_EPOCH, "Epoch limit exceeded");
         
         // Check global epoch limit
-        require(epochTotalTransfers[currentEpoch].add(amount) <= MAX_TRANSFER_PER_EPOCH.mul(100), "Global epoch limit exceeded");
+        require(epochTotalTransfers[currentEpoch] + amount <= MAX_TRANSFER_PER_EPOCH * 100, "Global epoch limit exceeded");
         
         // Update tracking
         lastBridgeTransfer[from] = block.timestamp;
-        epochTransferAmount[from] = epochTransferAmount[from].add(amount);
-        epochTotalTransfers[currentEpoch] = epochTotalTransfers[currentEpoch].add(amount);
+        epochTransferAmount[from] = epochTransferAmount[from] + amount;
+        epochTotalTransfers[currentEpoch] = epochTotalTransfers[currentEpoch] + amount;
         
         // Burn tokens
         dumpToken.bridgeBurn(from, amount);
@@ -165,7 +163,7 @@ contract BridgeGatekeeper is ReentrancyGuard {
     function getUserTransferStats(address user) external view returns (uint256, uint256, uint256) {
         uint256 lastTransfer = lastBridgeTransfer[user];
         uint256 epochAmount = epochTransferAmount[user];
-        uint256 cooldownEnd = lastTransfer.add(COOLDOWN_PERIOD);
+        uint256 cooldownEnd = lastTransfer + COOLDOWN_PERIOD;
         
         return (lastTransfer, epochAmount, cooldownEnd);
     }
@@ -187,11 +185,11 @@ contract BridgeGatekeeper is ReentrancyGuard {
      */
     function canTransfer(address user, uint256 amount) external view returns (bool) {
         if (bridgePaused) return false;
-        if (block.timestamp < lastBridgeTransfer[user].add(COOLDOWN_PERIOD)) return false;
+        if (block.timestamp < lastBridgeTransfer[user] + COOLDOWN_PERIOD) return false;
         
         uint256 currentEpoch = dumpToken.currentEpoch();
-        if (epochTransferAmount[user].add(amount) > MAX_TRANSFER_PER_EPOCH) return false;
-        if (epochTotalTransfers[currentEpoch].add(amount) > MAX_TRANSFER_PER_EPOCH.mul(100)) return false;
+        if (epochTransferAmount[user] + amount > MAX_TRANSFER_PER_EPOCH) return false;
+        if (epochTotalTransfers[currentEpoch] + amount > MAX_TRANSFER_PER_EPOCH * 100) return false;
         
         return true;
     }

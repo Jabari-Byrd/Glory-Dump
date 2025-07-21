@@ -2,16 +2,14 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title DumpToken
  * @dev The reverse wealth token - the less you hold, the better you rank
  * @author Prime Anomaly
  */
-contract DumpToken is ERC20, ReentrancyGuard {
-    using SafeMath for uint256;
+contract DumpToken is ERC20, ReentrancyGuard, Ownable {
 
     // Constants
     uint256 public constant DAILY_DEMURRAGE_RATE = 100; // 1% = 100 basis points
@@ -26,7 +24,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
     uint256 public constant MAX_VIRTUAL_SIZE = 1000000; // Prevent overflow
     
     // State variables
-    uint256 public totalSupply;
+    uint256 public _totalSupply;
     uint256 public currentEpoch;
     uint256 public epochStartTime;
     uint256 public feePot;
@@ -65,11 +63,15 @@ contract DumpToken is ERC20, ReentrancyGuard {
         string memory name,
         string memory symbol,
         uint256 initialSupply
-    ) ERC20(name, symbol) {
-        totalSupply = initialSupply;
+    ) ERC20(name, symbol) Ownable(msg.sender) {
+        _totalSupply = initialSupply;
         currentEpoch = 1;
         epochStartTime = block.timestamp;
         _mint(msg.sender, initialSupply);
+        
+        // Owner is automatically an active participant
+        isActiveParticipant[msg.sender] = true;
+        lastDemurrageUpdate[msg.sender] = block.timestamp;
     }
     
     /**
@@ -97,11 +99,11 @@ contract DumpToken is ERC20, ReentrancyGuard {
         // Calculate demurrage: balance * (1 - daily_rate)^days
         uint256 demurrageMultiplier = DEMURRAGE_BASIS_POINTS;
         for (uint256 i = 0; i < daysSinceUpdate; i++) {
-            demurrageMultiplier = demurrageMultiplier.mul(DEMURRAGE_BASIS_POINTS.sub(DAILY_DEMURRAGE_RATE)).div(DEMURRAGE_BASIS_POINTS);
+            demurrageMultiplier = demurrageMultiplier * (DEMURRAGE_BASIS_POINTS - DAILY_DEMURRAGE_RATE) / DEMURRAGE_BASIS_POINTS;
         }
         
-        uint256 newBalance = balance.mul(demurrageMultiplier).div(DEMURRAGE_BASIS_POINTS);
-        uint256 demurrageAmount = balance.sub(newBalance);
+        uint256 newBalance = balance * demurrageMultiplier / DEMURRAGE_BASIS_POINTS;
+        uint256 demurrageAmount = balance - newBalance;
         
         if (demurrageAmount > 0) {
             _burn(user, demurrageAmount);
@@ -119,6 +121,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
         require(amount >= getMinimumStake(), "Insufficient stake amount");
         require(!isActiveParticipant[msg.sender], "Already active participant");
         
+        // Use _transfer directly to avoid cooldown mechanics for staking
         _transfer(msg.sender, address(this), amount);
         stakedAmount[msg.sender] = amount;
         isActiveParticipant[msg.sender] = true;
@@ -153,22 +156,25 @@ contract DumpToken is ERC20, ReentrancyGuard {
     function transfer(address to, uint256 amount) public override returns (bool) {
         require(to != address(0), "Cannot transfer to zero address");
         require(amount > 0, "Cannot transfer zero amount");
+        require(isActiveParticipant[msg.sender], "Must be active participant");
         
         // Apply demurrage to sender
         applyDemurrage(msg.sender);
         
-        // Check cooldown
-        require(block.timestamp >= cooldownEndTime[msg.sender], "Transfer cooldown active");
+        // Check cooldown (skip for owner if no cooldown is set)
+        if (cooldownEndTime[msg.sender] > 0) {
+            require(block.timestamp >= cooldownEndTime[msg.sender], "Transfer cooldown active");
+        }
         
         // Calculate transfer fee
-        uint256 feeAmount = amount.mul(TRANSFER_FEE_BASIS_POINTS).div(DEMURRAGE_BASIS_POINTS);
-        uint256 transferAmount = amount.sub(feeAmount);
+        uint256 feeAmount = amount * TRANSFER_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 transferAmount = amount - feeAmount;
         
         // Calculate cooldown based on amount and epoch timing
         uint256 cooldown = computeCooldown(amount);
         
         // Update cooldown
-        cooldownEndTime[msg.sender] = block.timestamp.add(cooldown);
+        cooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Transfer tokens
         _transfer(msg.sender, to, transferAmount);
@@ -176,7 +182,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
         // Collect fee
         if (feeAmount > 0) {
             _transfer(msg.sender, address(this), feeAmount);
-            feePot = feePot.add(feeAmount);
+            feePot = feePot + feeAmount;
             emit FeeCollected(feeAmount, feePot);
         }
         
@@ -196,9 +202,9 @@ contract DumpToken is ERC20, ReentrancyGuard {
         
         if (amount == 0) return tMin;
         
-        uint256 scaled = amount.mul(1e18).div(totalSupply);
-        uint256 baseCooldown = tMin.add(
-            tMax.sub(tMin).mul(scaled.pow(k)).div(1e18.pow(k))
+        uint256 scaled = amount * 1e18 / _totalSupply;
+        uint256 baseCooldown = tMin + (
+            (tMax - tMin) * scaled * scaled / (1e18 * 1e18)
         );
         
         // Apply epoch-weighted scaling to cooldowns
@@ -207,21 +213,21 @@ contract DumpToken is ERC20, ReentrancyGuard {
         
         if (timeUntilEpochEnd < 1 hours) {
             // Last hour: cooldowns become much longer (anti-spam)
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 hours);
-            uint256 multiplier = 1e18.add(4e18.mul(1e18.sub(timeRatio)).div(1e18)); // 1x to 5x cooldown
-            baseCooldown = baseCooldown.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 1 hours;
+            uint256 multiplier = 1e18 + (4e18 * (1e18 - timeRatio) / 1e18); // 1x to 5x cooldown
+            baseCooldown = baseCooldown * multiplier / 1e18;
             
         } else if (timeUntilEpochEnd < 1 days) {
             // Last day: moderate cooldown increase
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 days);
-            uint256 multiplier = 1e18.add(2e18.mul(1e18.sub(timeRatio)).div(1e18)); // 1x to 3x cooldown
-            baseCooldown = baseCooldown.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 1 days;
+            uint256 multiplier = 1e18 + (2e18 * (1e18 - timeRatio) / 1e18); // 1x to 3x cooldown
+            baseCooldown = baseCooldown * multiplier / 1e18;
             
         } else if (timeUntilEpochEnd < 7 days) {
             // Last week: slight cooldown increase
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(7 days);
-            uint256 multiplier = 1e18.add(1e18.mul(1e18.sub(timeRatio)).div(1e18)); // 1x to 2x cooldown
-            baseCooldown = baseCooldown.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 7 days;
+            uint256 multiplier = 1e18 + (1e18 * (1e18 - timeRatio) / 1e18); // 1x to 2x cooldown
+            baseCooldown = baseCooldown * multiplier / 1e18;
         }
         
         return baseCooldown > tMax ? tMax : baseCooldown;
@@ -239,10 +245,17 @@ contract DumpToken is ERC20, ReentrancyGuard {
         uint256 t = timeUntilEpochEnd;
         
         // grief_multiplier(t) = (T / t)^k
-        uint256 ratio = epochDuration.mul(1e18).div(t);
-        uint256 multiplier = ratio.pow(GRIEF_TAX_EXPONENT).div(1e18.pow(GRIEF_TAX_EXPONENT - 1));
+        uint256 ratio = epochDuration * 1e18 / t;
+        uint256 multiplier = ratio * ratio / 1e18; // Simplified: ratio^2 / 1e18
         
         return multiplier > MAX_VIRTUAL_SIZE ? MAX_VIRTUAL_SIZE : multiplier;
+    }
+
+    /**
+     * @dev Reset cooldown for testing purposes (only owner)
+     */
+    function resetCooldown(address user) external onlyOwner {
+        cooldownEndTime[user] = 0;
     }
     
     /**
@@ -250,7 +263,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
      * @return Minimum stake amount
      */
     function getMinimumStake() public view returns (uint256) {
-        return totalSupply.mul(SYBIL_STAKE_PERCENTAGE).div(1000000); // 0.05%
+        return _totalSupply * SYBIL_STAKE_PERCENTAGE / 1000000; // 0.05%
     }
     
     /**
@@ -258,9 +271,9 @@ contract DumpToken is ERC20, ReentrancyGuard {
      * @return Time remaining in current epoch
      */
     function getEpochTimeRemaining() public view returns (uint256) {
-        uint256 epochEndTime = epochStartTime.add(EPOCH_DURATION);
+        uint256 epochEndTime = epochStartTime + EPOCH_DURATION;
         if (block.timestamp >= epochEndTime) return 0;
-        return epochEndTime.sub(block.timestamp);
+        return epochEndTime - block.timestamp;
     }
     
     /**
@@ -295,17 +308,17 @@ contract DumpToken is ERC20, ReentrancyGuard {
      * @dev Finalize current epoch
      */
     function finalizeEpoch() external nonReentrant {
-        require(block.timestamp >= epochStartTime.add(EPOCH_DURATION), "Epoch not over yet");
+        require(block.timestamp >= epochStartTime + EPOCH_DURATION, "Epoch not over yet");
         require(!isEpochFinalized[currentEpoch], "Epoch already finalized");
         
         // Mark epoch as finalized
         isEpochFinalized[currentEpoch] = true;
         
         // Increment epoch
-        currentEpoch = currentEpoch.add(1);
+        currentEpoch = currentEpoch + 1;
         epochStartTime = block.timestamp;
         
-        emit EpochFinalized(currentEpoch.sub(1), msg.sender);
+        emit EpochFinalized(currentEpoch - 1, msg.sender);
     }
     
     /**
@@ -339,8 +352,8 @@ contract DumpToken is ERC20, ReentrancyGuard {
         require(victimBalance >= amount, "Victim has insufficient balance");
         
         // Calculate theft fee (same as transfer fee)
-        uint256 feeAmount = amount.mul(THEFT_FEE_BASIS_POINTS).div(DEMURRAGE_BASIS_POINTS);
-        uint256 theftAmount = amount.sub(feeAmount);
+        uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 theftAmount = amount - feeAmount;
         
         // Calculate theft cooldown (amount-scaled like transfers)
         uint256 cooldown = computeTheftCooldown(amount);
@@ -353,7 +366,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
         require(thiefBalance >= theftCost, "Insufficient balance to pay theft cost");
         
         // Update theft cooldown
-        theftCooldownEndTime[msg.sender] = block.timestamp.add(cooldown);
+        theftCooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Execute the theft
         _transfer(victim, msg.sender, theftAmount);
@@ -364,7 +377,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
         // Collect fee
         if (feeAmount > 0) {
             _transfer(victim, address(this), feeAmount);
-            feePot = feePot.add(feeAmount);
+            feePot = feePot + feeAmount;
             emit FeeCollected(feeAmount, feePot);
         }
         
@@ -383,9 +396,9 @@ contract DumpToken is ERC20, ReentrancyGuard {
         
         if (amount == 0) return tMin;
         
-        uint256 scaled = amount.mul(1e18).div(totalSupply);
-        uint256 cooldown = tMin.add(
-            tMax.sub(tMin).mul(scaled.pow(k)).div(1e18.pow(k))
+        uint256 scaled = amount * 1e18 / _totalSupply;
+        uint256 cooldown = tMin + (
+            (tMax - tMin) * scaled * scaled / (1e18 * 1e18)
         );
         
         return cooldown > tMax ? tMax : cooldown;
@@ -401,43 +414,43 @@ contract DumpToken is ERC20, ReentrancyGuard {
         uint256 epochDuration = EPOCH_DURATION;
         
         // Base cost is 5% of amount stolen (cheapest on day 1)
-        uint256 baseCost = amount.mul(500).div(DEMURRAGE_BASIS_POINTS); // 5%
+        uint256 baseCost = amount * 500 / DEMURRAGE_BASIS_POINTS; // 5%
         
         // Calculate how much of the epoch has passed (0 = start, 1 = end)
-        uint256 epochProgress = epochDuration.sub(timeUntilEpochEnd).mul(1e18).div(epochDuration);
+        uint256 epochProgress = (epochDuration - timeUntilEpochEnd) * 1e18 / epochDuration;
         
         // Cost increases throughout the epoch with different phases:
         
         if (timeUntilEpochEnd < 1 hours) {
             // Last hour: EXPONENTIAL increase (meme territory)
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 hours);
-            uint256 multiplier = 1e18.mul(1e18).div(timeRatio.pow(3)); // Cubic increase for maximum chaos
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 1 hours;
+            uint256 multiplier = 1e18 * 1e18 / (timeRatio * timeRatio * timeRatio / (1e18 * 1e18)); // Cubic increase for maximum chaos
             
             // Cap at 1000x cost (literally losing money)
             if (multiplier > 1000e18) {
                 multiplier = 1000e18;
             }
             
-            baseCost = baseCost.mul(multiplier).div(1e18);
+            baseCost = baseCost * multiplier / 1e18;
             
         } else if (timeUntilEpochEnd < 1 days) {
             // Last day: QUADRATIC increase (high risk)
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 days);
-            uint256 multiplier = 1e18.add(19e18.mul(1e18.sub(timeRatio.pow(2))).div(1e18)); // 1x to 20x cost
-            baseCost = baseCost.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 1 days;
+            uint256 multiplier = 1e18 + (19e18 * (1e18 - timeRatio * timeRatio / 1e18) / 1e18); // 1x to 20x cost
+            baseCost = baseCost * multiplier / 1e18;
             
         } else if (timeUntilEpochEnd < 7 days) {
             // Last week: LINEAR increase (moderate risk)
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(7 days);
-            uint256 multiplier = 1e18.add(4e18.mul(1e18.sub(timeRatio)).div(1e18)); // 1x to 5x cost
-            baseCost = baseCost.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / 7 days;
+            uint256 multiplier = 1e18 + (4e18 * (1e18 - timeRatio) / 1e18); // 1x to 5x cost
+            baseCost = baseCost * multiplier / 1e18;
             
         } else {
             // First 23 days: GRADUAL increase (low risk)
             // Use a smooth curve that starts at 1x and gradually increases
-            uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(epochDuration);
-            uint256 multiplier = 1e18.add(2e18.mul(1e18.sub(timeRatio)).div(1e18)); // 1x to 3x cost over 23 days
-            baseCost = baseCost.mul(multiplier).div(1e18);
+            uint256 timeRatio = timeUntilEpochEnd * 1e18 / epochDuration;
+            uint256 multiplier = 1e18 + (2e18 * (1e18 - timeRatio) / 1e18); // 1x to 3x cost over 23 days
+            baseCost = baseCost * multiplier / 1e18;
         }
         
         return baseCost;
@@ -453,7 +466,7 @@ contract DumpToken is ERC20, ReentrancyGuard {
         if (block.timestamp >= theftCooldownEndTime[user]) {
             return (false, 0);
         } else {
-            return (true, theftCooldownEndTime[user].sub(block.timestamp));
+            return (true, theftCooldownEndTime[user] - block.timestamp);
         }
     }
 }

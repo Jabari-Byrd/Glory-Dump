@@ -15,9 +15,14 @@ contract GloryToken is ERC20, ReentrancyGuard {
     using SafeMath for uint256;
 
     // Constants
-    uint256 public constant TOP_PERCENTAGE = 5; // Top 5% get rewards
     uint256 public constant BUG_BOUNTY_PERCENTAGE = 5; // 5% for bug bounty
     uint256 public constant EPOCH_DURATION = 30 days;
+    
+    // Reward distribution tiers (basis points - 10000 = 100%)
+    uint256 public constant WINNER_PERCENTAGE = 4000;      // 40% to winner
+    uint256 public constant TOP_TIER_PERCENTAGE = 4000;    // 40% to top 2-10%
+    uint256 public constant MIDDLE_TIER_PERCENTAGE = 2000; // 20% to middle 40%
+    uint256 public constant BOTTOM_TIER_PERCENTAGE = 500;  // 5% to bottom 50%
     
     // State variables
     DumpToken public dumpToken;
@@ -83,7 +88,7 @@ contract GloryToken is ERC20, ReentrancyGuard {
     }
     
     /**
-     * @dev Finalize epoch and distribute GLORY rewards
+     * @dev Finalize epoch and distribute GLORY rewards to ALL participants
      */
     function finalizeEpoch() external nonReentrant {
         require(block.timestamp >= epochStartTime.add(EPOCH_DURATION), "Epoch not over yet");
@@ -103,33 +108,40 @@ contract GloryToken is ERC20, ReentrancyGuard {
         // Sort participants by average DUMP held (ascending - lowest first)
         address[] memory sortedParticipants = sortParticipantsByDumpHeld(currentEpoch);
         
-        // Calculate top 5% threshold
-        uint256 topCount = epoch.totalParticipants.mul(TOP_PERCENTAGE).div(100);
-        if (topCount == 0) topCount = 1; // At least one winner
+        // Calculate tier thresholds
+        uint256 totalParticipants = epoch.totalParticipants;
+        uint256 topTierCount = totalParticipants.mul(10).div(100);     // Top 10%
+        uint256 middleTierCount = totalParticipants.mul(40).div(100);  // Next 40%
+        uint256 bottomTierCount = totalParticipants.sub(topTierCount).sub(middleTierCount); // Bottom 50%
         
-        // Distribute rewards
-        address[] memory winners = new address[](topCount);
-        uint256[] memory amounts = new uint256[](topCount);
+        // Ensure minimum counts
+        if (topTierCount == 0) topTierCount = 1;
+        if (middleTierCount == 0) middleTierCount = 1;
+        if (bottomTierCount == 0) bottomTierCount = 1;
         
-        for (uint256 i = 0; i < topCount; i++) {
-            address winner = sortedParticipants[i];
-            uint256 reward = calculateReward(i, topCount, epochRewards);
+        // Distribute rewards to ALL participants
+        address[] memory allWinners = new address[](totalParticipants);
+        uint256[] memory allAmounts = new uint256[](totalParticipants);
+        
+        for (uint256 i = 0; i < totalParticipants; i++) {
+            address participant = sortedParticipants[i];
+            uint256 reward = calculateReward(i, totalParticipants, epochRewards);
             
-            winners[i] = winner;
-            amounts[i] = reward;
+            allWinners[i] = participant;
+            allAmounts[i] = reward;
             
-            epoch.gloryRewarded[winner] = reward;
+            epoch.gloryRewarded[participant] = reward;
             totalRewardsDistributed = totalRewardsDistributed.add(reward);
             
-            // Mint GLORY to winner
-            _mint(winner, reward);
+            // Mint GLORY to participant
+            _mint(participant, reward);
         }
         
         // Increment epoch
         currentEpoch = currentEpoch.add(1);
         epochStartTime = block.timestamp;
         
-        emit EpochRewardsDistributed(currentEpoch.sub(1), winners, amounts);
+        emit EpochRewardsDistributed(currentEpoch.sub(1), allWinners, allAmounts);
         emit EpochSnapshot(currentEpoch.sub(1), epoch.totalParticipants);
     }
     
@@ -148,26 +160,34 @@ contract GloryToken is ERC20, ReentrancyGuard {
     }
     
     /**
-     * @dev Calculate individual reward based on rank
-     * @param rank Position in leaderboard (0 = lowest DUMP holder)
-     * @param totalWinners Total number of winners
+     * @dev Calculate individual reward based on rank with real-world wealth distribution
+     * @param rank Position in leaderboard (0 = lowest DUMP holder = winner)
+     * @param totalParticipants Total number of participants
      * @param totalRewards Total rewards to distribute
      * @return Individual reward amount
      */
-    function calculateReward(uint256 rank, uint256 totalWinners, uint256 totalRewards) internal pure returns (uint256) {
-        if (totalWinners == 0) return 0;
+    function calculateReward(uint256 rank, uint256 totalParticipants, uint256 totalRewards) internal pure returns (uint256) {
+        if (totalParticipants == 0) return 0;
         
-        // Logarithmic distribution: higher ranks get exponentially more
-        // Formula: reward = base * (1.5 ^ (totalWinners - rank - 1))
-        uint256 baseReward = totalRewards.div(totalWinners.mul(2)); // Conservative base
+        // Calculate tier thresholds
+        uint256 topTierCount = totalParticipants.mul(10).div(100);     // Top 10%
+        uint256 middleTierCount = totalParticipants.mul(40).div(100);  // Next 40%
         
+        // Determine which tier this rank belongs to
         if (rank == 0) {
-            // Winner gets 50% of total rewards
-            return totalRewards.div(2);
-        } else {
-            // Others get decreasing amounts
-            uint256 multiplier = 150; // 1.5x in basis points
-            uint256 power = totalWinners.sub(rank).sub(1);
+            // 🏆 WINNER (Rank 0) - Gets 40% of total rewards
+            return totalRewards.mul(WINNER_PERCENTAGE).div(10000);
+            
+        } else if (rank < topTierCount) {
+            // 🥈 TOP TIER (Ranks 1-9%) - Share 40% of total rewards
+            uint256 topTierRewards = totalRewards.mul(TOP_TIER_PERCENTAGE).div(10000);
+            uint256 participantsInTier = topTierCount.sub(1); // Exclude winner
+            if (participantsInTier == 0) participantsInTier = 1;
+            
+            // Exponential decay within top tier
+            uint256 baseReward = topTierRewards.div(participantsInTier.mul(3)); // Conservative base
+            uint256 multiplier = 200; // 2x decay per rank
+            uint256 power = participantsInTier.sub(rank);
             
             uint256 reward = baseReward;
             for (uint256 i = 0; i < power; i++) {
@@ -175,6 +195,32 @@ contract GloryToken is ERC20, ReentrancyGuard {
             }
             
             return reward;
+            
+        } else if (rank < topTierCount.add(middleTierCount)) {
+            // 🥉 MIDDLE TIER (Ranks 10-49%) - Share 20% of total rewards
+            uint256 middleTierRewards = totalRewards.mul(MIDDLE_TIER_PERCENTAGE).div(10000);
+            uint256 participantsInTier = middleTierCount;
+            if (participantsInTier == 0) participantsInTier = 1;
+            
+            // Linear decay within middle tier
+            uint256 baseReward = middleTierRewards.div(participantsInTier);
+            uint256 rankInTier = rank.sub(topTierCount);
+            uint256 decayFactor = participantsInTier.sub(rankInTier).mul(100).div(participantsInTier);
+            
+            return baseReward.mul(decayFactor).div(100);
+            
+        } else {
+            // 📉 BOTTOM TIER (Ranks 50%+) - Share 5% of total rewards
+            uint256 bottomTierRewards = totalRewards.mul(BOTTOM_TIER_PERCENTAGE).div(10000);
+            uint256 participantsInTier = totalParticipants.sub(topTierCount).sub(middleTierCount);
+            if (participantsInTier == 0) participantsInTier = 1;
+            
+            // Minimal rewards for bottom tier
+            uint256 baseReward = bottomTierRewards.div(participantsInTier);
+            uint256 rankInTier = rank.sub(topTierCount).sub(middleTierCount);
+            uint256 decayFactor = participantsInTier.sub(rankInTier).mul(50).div(participantsInTier);
+            
+            return baseReward.mul(decayFactor).div(100);
         }
     }
     

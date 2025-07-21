@@ -302,11 +302,20 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     function startNextEpoch() external {
         require(isWaitingPeriod, "Not in waiting period");
         require(block.timestamp >= nextEpochStartTime, "Waiting period not over");
-        // Move pendingParticipants to active
-        for (uint256 i = 0; i < pendingParticipants.length; i++) {
+        // Move pendingParticipants to active and assign random DUMP
+        uint256 totalAssigned = 0;
+        uint256 n = pendingParticipants.length;
+        for (uint256 i = 0; i < n; i++) {
             address user = pendingParticipants[i];
             isActiveParticipant[user] = true;
+            // Assign random DUMP amount
+            uint256 rand = uint256(keccak256(abi.encodePacked(blockhash(block.number-1), user, i, block.timestamp)));
+            uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18; // at least 1 DUMP
+            _mint(user, amount);
+            totalAssigned += amount;
         }
+        // Optionally mint to contract to keep supply consistent (not strictly needed for game)
+        // _mint(address(this), INITIAL_DUMP_SUPPLY - totalAssigned);
         delete pendingParticipants;
         isWaitingPeriod = false;
         epochStartTime = block.timestamp;

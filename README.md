@@ -57,7 +57,11 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 #### 🏆 Epoch System
 - **30-day epochs**: Fixed periods for competition
 - **Snapshot-based rewards**: Average DUMP held over epoch determines rank
-- **Top 5% rewarded**: Logarithmic distribution of GLORY
+- **Real-world wealth distribution**: All participants get rewards based on rank:
+  - **🏆 Winner (1st place)**: 40% of total rewards
+  - **🥈 Top 2-10%**: Share 40% of total rewards (exponential decay)
+  - **🥉 Middle 10-49%**: Share 20% of total rewards (linear decay)
+  - **📉 Bottom 50%**: Share 5% of total rewards (minimal amounts)
 
 #### 💰 Fee & Buyback System
 - **0.3% transfer fee**: Collected in DUMP

@@ -1,7 +1,7 @@
 {
-  "name": "dump-glory-token",
+  "name": "glory-dump-token",
   "version": "1.0.0",
-  "description": "DUMP/GLORY: The Reverse Wealth, Self-Draining, PvP Meme Token",
+  "description": "GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
@@ -10,14 +10,14 @@
     "deploy:testnet": "hardhat run scripts/deploy.js --network base-testnet"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.0.0",
+    "@openzeppelin/contracts": "^5.0.1",
     "@uniswap/v2-core": "^1.0.1",
     "@uniswap/v2-periphery": "^1.1.0-beta.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "hardhat": "^2.19.0",
-    "chai": "^4.3.7",
+    "chai": "^4.3.10",
     "ethers": "^6.8.0"
   },
   "keywords": [
@@ -26,7 +26,20 @@
     "defi",
     "meme-token",
     "pvp",
-    "game"
+    "game",
+    "glory-dump",
+    "blockchain",
+    "cryptocurrency",
+    "tokenomics",
+    "smart-contracts",
+    "web3",
+    "nft",
+    "gaming",
+    "competitive",
+    "reverse-economics",
+    "demurrage",
+    "base-network",
+    "layer2"
   ],
   "author": "Prime Anomaly",
   "license": "MIT"

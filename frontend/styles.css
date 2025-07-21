@@ -196,7 +196,15 @@ h1 {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 }
 
-.game-actions h2 {
+.action-section {
+    margin-bottom: 40px;
+}
+
+.action-section:last-child {
+    margin-bottom: 0;
+}
+
+.action-section h2 {
     margin-bottom: 25px;
     color: #333;
     text-align: center;
@@ -256,6 +264,46 @@ h1 {
 .cooldown-info div {
     color: #666;
     font-size: 0.9rem;
+}
+
+.theft-interface {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.theft-info {
+    background: #fff3cd;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    border: 1px solid #ffeaa7;
+}
+
+.theft-info div {
+    color: #856404;
+    font-size: 0.9rem;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #ff9800, #f57c00);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.btn-warning:hover {
+    background: linear-gradient(135deg, #f57c00, #e65100);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 152, 0, 0.3);
 }
 
 /* Leaderboard */
@@ -375,27 +423,27 @@ footer p {
     .container {
         padding: 10px;
     }
-    
+
     h1 {
         font-size: 2rem;
     }
-    
+
     .game-stats {
         grid-template-columns: 1fr;
     }
-    
+
     .leaderboard-header,
     .leaderboard-item {
         grid-template-columns: 60px 1fr 120px;
         gap: 10px;
         font-size: 0.9rem;
     }
-    
+
     .fee-stats {
         flex-direction: column;
         align-items: center;
     }
-    
+
     .wallet-section {
         flex-direction: column;
         gap: 10px;
@@ -404,9 +452,17 @@ footer p {
 
 /* Animations */
 @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+
+    100% {
+        transform: scale(1);
+    }
 }
 
 .stat-card:hover {

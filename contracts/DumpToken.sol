@@ -24,6 +24,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public nextEpochStartTime;
     bool public isWaitingPeriod;
     address[] public pendingParticipants;
+    address[] public lastEpochParticipants;
     
     // State variables
     uint256 public _totalSupply;
@@ -302,15 +303,28 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     function startNextEpoch() external {
         require(isWaitingPeriod, "Not in waiting period");
         require(block.timestamp >= nextEpochStartTime, "Waiting period not over");
-        // Move pendingParticipants to active and assign random DUMP
+        // Expire all previously active participants and burn/reset stakes
+        for (uint256 i = 0; i < lastEpochParticipants.length; i++) {
+            address user = lastEpochParticipants[i];
+            isActiveParticipant[user] = false;
+            // Reset average dump data
+            delete averageDumpData[user];
+            // Burn/reset staked tokens
+            if (stakedAmount[user] > 0) {
+                // Burn staked tokens (they are held by contract)
+                _burn(address(this), stakedAmount[user]);
+                stakedAmount[user] = 0;
+            }
+        }
+        delete lastEpochParticipants;
         uint256 totalAssigned = 0;
         uint256 n = pendingParticipants.length;
         for (uint256 i = 0; i < n; i++) {
             address user = pendingParticipants[i];
             isActiveParticipant[user] = true;
-            // Assign random DUMP amount
+            lastEpochParticipants.push(user);
             uint256 rand = uint256(keccak256(abi.encodePacked(blockhash(block.number-1), user, i, block.timestamp)));
-            uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18; // at least 1 DUMP
+            uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18;
             _mint(user, amount);
             totalAssigned += amount;
             // Initialize average dump data
@@ -321,8 +335,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
                 lastBalance: amount
             });
         }
-        // Optionally mint to contract to keep supply consistent (not strictly needed for game)
-        // _mint(address(this), INITIAL_DUMP_SUPPLY - totalAssigned);
         delete pendingParticipants;
         isWaitingPeriod = false;
         epochStartTime = block.timestamp;

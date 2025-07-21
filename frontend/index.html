@@ -117,6 +117,44 @@
                 </div>
                 <button id="executeBuyback" class="btn btn-success">Execute Buyback</button>
             </div>
+
+            <div class="bug-bounty">
+                <h2>🐛 Bug Bounty Program</h2>
+                <div class="bounty-stats">
+                    <div>Bounty Reserve: <span id="bountyReserve">0</span> GLORY</div>
+                    <div>Total Reports: <span id="totalReports">0</span></div>
+                </div>
+                
+                <div class="bounty-interface">
+                    <h3>Submit Bug Report</h3>
+                    <div class="input-group">
+                        <label for="bugSeverity">Severity Level:</label>
+                        <select id="bugSeverity">
+                            <option value="0">LOW - 10K GLORY</option>
+                            <option value="1">MEDIUM - 25K GLORY</option>
+                            <option value="2">HIGH - 50K GLORY</option>
+                            <option value="3">CRITICAL - 100K GLORY</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="bugDescription">Bug Description:</label>
+                        <textarea id="bugDescription" placeholder="Describe the bug in detail..." rows="3"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label for="bugProofOfConcept">Proof of Concept (Optional):</label>
+                        <textarea id="bugProofOfConcept" placeholder="Provide code or steps to reproduce..." rows="3"></textarea>
+                    </div>
+                    <button id="submitBugReport" class="btn btn-info">Submit Report</button>
+                </div>
+
+                <div class="bug-reports">
+                    <h3>Bug Reports</h3>
+                    <button id="viewBugReports" class="btn btn-secondary">Refresh Reports</button>
+                    <div id="bugReportsContainer" class="reports-list">
+                        <div class="loading">No bug reports yet...</div>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <footer>

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DumpToken.sol";
 import "./GloryToken.sol";
@@ -13,7 +12,6 @@ import "./GloryToken.sol";
  * @author Prime Anomaly
  */
 contract FeePot is ReentrancyGuard {
-    using SafeMath for uint256;
 
     // Constants
     uint256 public constant MINIMUM_LIQUIDITY_ETH = 1 ether; // 1 ETH minimum liquidity
@@ -75,7 +73,7 @@ contract FeePot is ReentrancyGuard {
      * @param amount Fee amount collected
      */
     function collectFee(uint256 amount) external onlyDumpToken {
-        totalFeesCollected = totalFeesCollected.add(amount);
+        totalFeesCollected = totalFeesCollected + amount;
         emit FeeCollected(amount, totalFeesCollected);
     }
     
@@ -87,7 +85,7 @@ contract FeePot is ReentrancyGuard {
         require(feeBalance > 0, "No fees to buyback");
         
         // Check if enough time has passed since last buyback
-        require(block.timestamp >= lastBuybackTime.add(1 days), "Buyback cooldown active");
+        require(block.timestamp >= lastBuybackTime + 1 days, "Buyback cooldown active");
         
         // Get current price from oracle
         uint256 currentPrice = getDumpPrice();
@@ -112,7 +110,7 @@ contract FeePot is ReentrancyGuard {
         // Update state
         lastBuybackPrice = currentPrice;
         lastBuybackTime = block.timestamp;
-        totalGloryBurned = totalGloryBurned.add(gloryBurned);
+        totalGloryBurned = totalGloryBurned + gloryBurned;
         
         emit BuybackExecuted(buybackAmount, gloryBurned, currentPrice);
     }
@@ -175,9 +173,9 @@ contract FeePot is ReentrancyGuard {
         if (oldPrice == 0) return 0;
         
         if (newPrice > oldPrice) {
-            return newPrice.sub(oldPrice).mul(100).div(oldPrice);
+            return (newPrice - oldPrice) * 100 / oldPrice;
         } else {
-            return oldPrice.sub(newPrice).mul(100).div(oldPrice);
+            return (oldPrice - newPrice) * 100 / oldPrice;
         }
     }
     
@@ -223,7 +221,7 @@ contract FeePot is ReentrancyGuard {
     function canExecuteBuyback() external view returns (bool) {
         if (emergencyPaused) return false;
         if (dumpToken.balanceOf(address(this)) == 0) return false;
-        if (block.timestamp < lastBuybackTime.add(1 days)) return false;
+        if (block.timestamp < lastBuybackTime + 1 days) return false;
         
         uint256 currentPrice = getDumpPrice();
         if (currentPrice == 0) return false;

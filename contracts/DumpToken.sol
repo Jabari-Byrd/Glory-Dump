@@ -38,6 +38,9 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     mapping(address => uint256) public takeCooldownEndTime; // for thefts (steal)
     mapping(uint256 => bool) public isEpochFinalized;
     mapping(address => bool) public isActiveParticipant;
+    uint256 public constant BASE_JOIN_FEE = 0.01 ether;
+    uint256 public constant MAX_JOIN_FEE = 1 ether;
+    mapping(address => uint256) public joinFeesPaid;
     
     // Events
     event StakeDeposited(address indexed user, uint256 amount);
@@ -277,13 +280,22 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     }
 
     // New function: sign up for next epoch during waiting period
-    function signupForNextEpoch() external onlyDuringWaiting {
+    function signupForNextEpoch() external payable onlyDuringWaiting {
         require(!isActiveParticipant[msg.sender], "Already active");
         // Add to pending participants if not already
         for (uint256 i = 0; i < pendingParticipants.length; i++) {
             if (pendingParticipants[i] == msg.sender) revert("Already signed up");
         }
+        // Calculate join fee based on time elapsed in waiting period
+        uint256 elapsed = block.timestamp + WAITING_PERIOD - nextEpochStartTime;
+        uint256 fee = BASE_JOIN_FEE + ((MAX_JOIN_FEE - BASE_JOIN_FEE) * elapsed / WAITING_PERIOD);
+        require(msg.value >= fee, "Insufficient join fee");
+        joinFeesPaid[msg.sender] = fee;
         pendingParticipants.push(msg.sender);
+        // Refund any excess
+        if (msg.value > fee) {
+            payable(msg.sender).transfer(msg.value - fee);
+        }
     }
 
     // New function: start the next epoch (can be called by anyone after waiting period)

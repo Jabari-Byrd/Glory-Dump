@@ -1,4 +1,4 @@
-# GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token
+# GLORY/DUMP: The Reverse Wealth, PvP Meme Token
 
 > **"How Not to Do Money" Edition** - A token that hates being held, a leaderboard of the chronically unwealthy, a reward system for staying poor.
 
@@ -7,7 +7,7 @@
 GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 - **The less DUMP you have, the higher you rank**
 - **The more DUMP you receive, the more you must scramble to dump it on someone else**
-- **Periodic leaderboards award GLORY to those who held the least DUMP**
+- **Periodic leaderboards award GLORY to those who held the least DUMP (on average!)**
 - **It's PvP: you can sabotage others by force-feeding them DUMP, but everyone can grief back**
 - **All tokenomics are hard-coded—no governance votes, no DAOs, no admin keys**
 
@@ -15,58 +15,36 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 
 ### Core Contracts
 
-1. **`DumpToken.sol`** - The main token with demurrage mechanics
+1. **`DumpToken.sol`** - The main token with PvP mechanics and epoch resets
 2. **`GloryToken.sol`** - Reward token for epoch winners
 3. **`FeePot.sol`** - Handles fee collection and buyback mechanics
 4. **`BridgeGatekeeper.sol`** - Enforces cross-chain transfer rules
 
 ### Key Features
 
-#### 🕐 Demurrage System
-- **1% daily decay**: Your balance auto-decays by 1% each day (compounded)
-- **Continuous calculation**: Applied on every interaction
-- **Staked amounts also decay**: No escape from the rot
-
-#### 🦹‍♂️ Theft System
-- **Steal DUMP from others**: Force tokens from any active participant
-- **Same 0.3% fee**: Theft incurs the same fee as transfers
-- **Amount-scaled cooldowns**: Bigger thefts = longer cooldowns (30s to 1h)
-- **Epoch-weighted costs**: Costs increase throughout the entire epoch:
-  - **Days 1-23**: Gradual increase (5% to 15% base cost)
-  - **Last week**: Linear increase (15% to 25% base cost)
-  - **Last day**: Quadratic increase (25% to 500% base cost)
-  - **Last hour**: Exponential increase (500% to 5000% base cost - MEME TERRITORY!)
-- **Strategic penalty**: Thieves pay a cost that makes them "richer" (worse ranking)
-- **No consent required**: Pure chaos - anyone can steal from anyone
-
-#### ⏱️ Cooldown Mechanics
-- **Amount-scaled cooldowns**: The more you dump, the longer you wait
-- **Formula**: `cooldown = T_min + (T_max - T_min) * (amount/supply)^k`
-- **Quadratic scaling**: Small dumps = short cooldown, large dumps = long cooldown
-- **Epoch-weighted scaling**: Cooldowns increase throughout the epoch:
-  - **Days 1-23**: Normal cooldowns
-  - **Last week**: 1x to 2x longer cooldowns
-  - **Last day**: 1x to 3x longer cooldowns
-  - **Last hour**: 1x to 5x longer cooldowns (anti-spam)
-
-#### 🛡️ Sybil Resistance
-- **Minimum stake required**: 0.05% of total supply to participate
-- **Staked DUMP decays**: Makes large-scale attacks expensive
-- **Withdrawable stake**: Can exit but lose decayed amounts
-
-#### 🏆 Epoch System
+#### 🕐 Epoch System & Waiting Period
 - **30-day epochs**: Fixed periods for competition
-- **Snapshot-based rewards**: Average DUMP held over epoch determines rank
-- **Real-world wealth distribution**: All participants get rewards based on rank:
-  - **🏆 Winner (1st place)**: 40% of total rewards
-  - **🥈 Top 2-10%**: Share 40% of total rewards (exponential decay)
-  - **🥉 Middle 10-49%**: Share 20% of total rewards (linear decay)
-  - **📉 Bottom 50%**: Share 5% of total rewards (minimal amounts)
-- **Bonus Epochs**: Special epochs where extra GLORY rewards are distributed, triggered by rare on-chain events:
-  - **Milestones**: New records for DUMP volume, unique players, active addresses, GLORY price, DUMP volatility, or liquidity (must exceed previous record by 10%).
-  - **Random Events**: 1-in-50 chance per epoch for a random bonus.
-  - **Easter Eggs**: Blockhash with repeating digits (e.g., 777), or palindromic epoch numbers (e.g., 121, 1331).
-  - **Stacking/Ultra Bonus**: If multiple bonus triggers happen in the same epoch, the bonus multiplier increases (e.g., 2x for two triggers, 3x+ for three or more, called an "ultra bonus").
+- **7-day waiting period**: After each epoch, a 7-day "lobby" lets new players sign up for the next round
+- **Sign-up fee**: The later you join during the waiting period, the higher the fee (from 0.01 ETH up to 1 ETH)
+- **Inactive participants expire**: Only those who sign up for the next epoch are included
+
+#### 🎲 Random DUMP Assignment
+- **At epoch start, all active participants receive a random amount of DUMP** (from 1 to 10 billion DUMP)
+- **Very large supply**: There is always enough DUMP for any number of players
+- **No demurrage**: DUMP does not decay over time; your challenge is to dump it before the epoch ends
+
+#### 🦹‍♂️ Theft & Transfer System
+- **Steal DUMP from others**: Force tokens from any active participant
+- **0.3% fee**: Both transfers and thefts incur a 0.3% fee
+- **Amount-scaled cooldowns**: The more you dump or steal, the longer you must wait before acting again
+- **Epoch-aware cooldowns**: Big moves late in the epoch can lock you out for the rest of the game
+- **Action-specific cooldowns**: Stealing and giving have separate cooldowns—chain your chaos!
+
+#### 🏆 Ranking & Rewards
+- **Time-weighted average DUMP**: Your rank is based on the average amount of DUMP you held during the epoch (not just your final balance)
+- **Late joiners are penalized**: Their average starts high, so it's hard to win by joining late
+- **GLORY rewards**: At epoch end, GLORY is distributed to those with the lowest average DUMP
+- **Bonus Epochs**: Special epochs with extra GLORY rewards, triggered by rare on-chain events
 
 #### 💰 Fee & Buyback System
 - **0.3% transfer fee**: Collected in DUMP
@@ -111,15 +89,14 @@ npm run deploy:testnet
 
 ## 🎮 How to Play
 
-### 1. Join the Game
+### 1. Join the Game (During Waiting Period)
 ```solidity
-// Stake minimum amount to become active participant
-uint256 minStake = dumpToken.getMinimumStake();
-dumpToken.stakeForParticipation(minStake);
+// Sign up for the next epoch (paying the join fee)
+dumpToken.signupForNextEpoch{value: fee}();
 ```
 
 ### 2. The Objective
-- **Hold the LEAST DUMP** over the 30-day epoch
+- **Hold the LEAST DUMP (on average) over the 30-day epoch**
 - **Dump DUMP on others** to sabotage their ranking
 - **Avoid receiving DUMP** from griefers
 - **Win GLORY rewards** at epoch end
@@ -132,26 +109,32 @@ dumpToken.transfer(target, amount);
 // Steal DUMP from others (with cooldown, fees, and costs)
 dumpToken.stealDump(victim, amount);
 
-// Check your rank
+// Check your average DUMP
+dumpToken.getAverageDump(yourAddress);
+
+// Check your rank (via GloryToken)
 int256 rank = gloryToken.getUserRank(yourAddress);
 
 // View leaderboard
 address[] memory leaders = gloryToken.getLeaderboard();
 ```
 
-### 4. Epoch Finalization
+### 4. Epoch Finalization & Reset
 ```solidity
 // Anyone can finalize epoch after 30 days
-gloryToken.finalizeEpoch();
+dumpToken.finalizeEpoch();
+// 7-day waiting period begins; sign up for next round!
+// After waiting period, anyone can start the next epoch:
+dumpToken.startNextEpoch();
 ```
 
 ## 📊 Tokenomics
 
 ### DUMP Token
-- **Initial Supply**: 1,000,000 DUMP
-- **Daily Demurrage**: 1% (26% monthly)
-- **Transfer Fee**: 0.3%
-- **Sybil Stake**: 0.05% of supply (500 DUMP)
+- **Very large supply**: Always enough for all players
+- **No demurrage**: DUMP does not decay
+- **Transfer/steal fee**: 0.3%
+- **Random assignment**: Each epoch, all active players get a random DUMP amount
 
 ### GLORY Token
 - **Initial Supply**: 1,000,000 GLORY
@@ -167,68 +150,37 @@ gloryToken.finalizeEpoch();
 
 ## 🔧 Technical Details
 
-### Demurrage Implementation
+### Random DUMP Assignment
 ```solidity
-// Continuous decay calculation
-uint256 demurrageMultiplier = DEMURRAGE_BASIS_POINTS;
-for (uint256 i = 0; i < daysSinceUpdate; i++) {
-    demurrageMultiplier = demurrageMultiplier
-        .mul(DEMURRAGE_BASIS_POINTS.sub(DAILY_DEMURRAGE_RATE))
-        .div(DEMURRAGE_BASIS_POINTS);
-}
+// At epoch start, each participant gets:
+uint256 rand = uint256(keccak256(abi.encodePacked(blockhash(block.number-1), user, i, block.timestamp)));
+uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18;
 ```
 
-### Theft Implementation
+### Average DUMP Calculation
 ```solidity
-// Epoch-weighted theft cost calculation with continuous scaling
-uint256 baseCost = amount.mul(500).div(DEMURRAGE_BASIS_POINTS); // 5% base cost
-
-if (timeUntilEpochEnd < 1 hours) {
-    // Last hour: EXPONENTIAL increase (meme territory)
-    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 hours);
-    uint256 multiplier = 1e18.mul(1e18).div(timeRatio.pow(3)); // Cubic increase
-    baseCost = baseCost.mul(multiplier).div(1e18);
-} else if (timeUntilEpochEnd < 1 days) {
-    // Last day: QUADRATIC increase (high risk)
-    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(1 days);
-    uint256 multiplier = 1e18.add(19e18.mul(1e18.sub(timeRatio.pow(2))).div(1e18));
-    baseCost = baseCost.mul(multiplier).div(1e18);
-} else if (timeUntilEpochEnd < 7 days) {
-    // Last week: LINEAR increase (moderate risk)
-    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(7 days);
-    uint256 multiplier = 1e18.add(4e18.mul(1e18.sub(timeRatio)).div(1e18));
-    baseCost = baseCost.mul(multiplier).div(1e18);
-} else {
-    // First 23 days: GRADUAL increase (low risk)
-    uint256 timeRatio = timeUntilEpochEnd.mul(1e18).div(epochDuration);
-    uint256 multiplier = 1e18.add(2e18.mul(1e18.sub(timeRatio)).div(1e18));
-    baseCost = baseCost.mul(multiplier).div(1e18);
-}
+// On every balance change:
+cumulativeDumpTime += lastBalance * (now - lastUpdateTime);
+lastUpdateTime = now;
+lastBalance = balanceOf(user);
+// At epoch end:
+average = cumulativeDumpTime / (now - epochStartTime);
 ```
 
 ### Cooldown Formula
 ```solidity
-// Amount-scaled cooldown
-uint256 scaled = amount.mul(1e18).div(totalSupply);
-uint256 cooldown = tMin.add(
-    tMax.sub(tMin).mul(scaled.pow(k)).div(1e18.pow(k))
-);
-```
-
-### Grief Tax
-```solidity
-// Epoch-weighted grief multiplier
-// grief_multiplier(t) = (T / t)^k
-uint256 ratio = epochDuration.mul(1e18).div(timeUntilEpochEnd);
-uint256 multiplier = ratio.pow(GRIEF_TAX_EXPONENT);
+// Amount-scaled cooldown, epoch-aware
+uint256 scaled = amount * 1e18 / _totalSupply;
+uint256 scaledCubed = scaled * scaled / 1e18;
+scaledCubed = scaledCubed * scaled / 1e18;
+uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
 ```
 
 ## 🛡️ Security Features
 
 ### Anti-Grief Measures
-- **Epoch-weighted grief tax**: Late attacks exponentially expensive
-- **Cooldown enforcement**: Prevents rapid-fire dumping
-- **Sybil resistance**: Staking requirement with decay
+- **Epoch-aware cooldowns**: Big moves late in the epoch are heavily penalized
+- **Sybil resistance**: High join fee for late joiners, average-based ranking
 - **Circuit breakers**: Emergency pause functions
 
 ### Bridge Security
@@ -248,7 +200,7 @@ uint256 multiplier = ratio.pow(GRIEF_TAX_EXPONENT);
 ### ⚠️ Risk Warnings
 - **Experimental**: This is a novel token design
 - **No investment value**: Pure utility/game token
-- **High volatility**: Demurrage creates constant selling pressure
+- **High volatility**: Expect wild swings in DUMP balances
 - **Complex mechanics**: May be difficult to understand
 
 ### 🔒 No Admin Controls
@@ -276,4 +228,4 @@ MIT License - Use at your own risk.
 
 ---
 
-**Remember**: This is a game, not an investment. The goal is to have the LEAST DUMP, not the most. Welcome to the reverse wealth experiment! 🎭
+**Remember**: This is a game, not an investment. The goal is to have the LEAST DUMP (on average), not the most. Welcome to the reverse wealth experiment! 🎭

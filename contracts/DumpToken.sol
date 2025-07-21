@@ -12,8 +12,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract DumpToken is ERC20, ReentrancyGuard, Ownable {
 
     // Constants
-    uint256 public constant DAILY_DEMURRAGE_RATE = 100; // 1% = 100 basis points
-    uint256 public constant DEMURRAGE_BASIS_POINTS = 10000;
     uint256 public constant TRANSFER_FEE_BASIS_POINTS = 30; // 0.3%
     uint256 public constant THEFT_FEE_BASIS_POINTS = 30; // 0.3% (same as transfer)
     uint256 public constant SYBIL_STAKE_PERCENTAGE = 5; // 0.05% of total supply
@@ -22,6 +20,11 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public constant THEFT_COOLDOWN_MIN = 30; // 30 seconds minimum
     uint256 public constant THEFT_COOLDOWN_MAX = 1 hours; // 1 hour maximum
     uint256 public constant MAX_VIRTUAL_SIZE = 1000000; // Prevent overflow
+    uint256 public constant WAITING_PERIOD = 7 days;
+    uint256 public nextEpochStartTime;
+    bool public isWaitingPeriod;
+    address[] public pendingParticipants;
+    address[] public lastEpochParticipants;
     
     // State variables
     uint256 public _totalSupply;
@@ -30,17 +33,17 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public feePot;
     
     // Mappings
-    mapping(address => uint256) public lastDemurrageUpdate;
     mapping(address => uint256) public stakedAmount;
     mapping(address => uint256) public lastTransferTime;
-    mapping(address => uint256) public cooldownEndTime;
-    mapping(address => uint256) public lastTheftTime;
-    mapping(address => uint256) public theftCooldownEndTime;
+    mapping(address => uint256) public giveCooldownEndTime; // for transfers (give/dump)
+    mapping(address => uint256) public takeCooldownEndTime; // for thefts (steal)
     mapping(uint256 => bool) public isEpochFinalized;
     mapping(address => bool) public isActiveParticipant;
+    uint256 public constant BASE_JOIN_FEE = 0.01 ether;
+    uint256 public constant MAX_JOIN_FEE = 1 ether;
+    mapping(address => uint256) public joinFeesPaid;
     
     // Events
-    event DemurrageApplied(address indexed user, uint256 amount, uint256 newBalance);
     event StakeDeposited(address indexed user, uint256 amount);
     event StakeWithdrawn(address indexed user, uint256 amount);
     event TransferWithCooldown(address indexed from, address indexed to, uint256 amount, uint256 cooldown);
@@ -58,6 +61,15 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         // TODO: Add bridge address check
         _;
     }
+
+    modifier onlyDuringGame() {
+        require(!isWaitingPeriod && block.timestamp >= nextEpochStartTime, "Game not started yet");
+        _;
+    }
+    modifier onlyDuringWaiting() {
+        require(isWaitingPeriod && block.timestamp < nextEpochStartTime, "Not in waiting period");
+        _;
+    }
     
     constructor(
         string memory name,
@@ -71,46 +83,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         
         // Owner is automatically an active participant
         isActiveParticipant[msg.sender] = true;
-        lastDemurrageUpdate[msg.sender] = block.timestamp;
-    }
-    
-    /**
-     * @dev Apply demurrage to an address
-     * @param user Address to apply demurrage to
-     */
-    function applyDemurrage(address user) public {
-        uint256 lastUpdate = lastDemurrageUpdate[user];
-        uint256 currentTime = block.timestamp;
-        
-        if (lastUpdate == 0) {
-            lastDemurrageUpdate[user] = currentTime;
-            return;
-        }
-        
-        uint256 daysSinceUpdate = (currentTime - lastUpdate) / 1 days;
-        if (daysSinceUpdate == 0) return;
-        
-        uint256 balance = balanceOf(user);
-        if (balance == 0) {
-            lastDemurrageUpdate[user] = currentTime;
-            return;
-        }
-        
-        // Calculate demurrage: balance * (1 - daily_rate)^days
-        uint256 demurrageMultiplier = DEMURRAGE_BASIS_POINTS;
-        for (uint256 i = 0; i < daysSinceUpdate; i++) {
-            demurrageMultiplier = demurrageMultiplier * (DEMURRAGE_BASIS_POINTS - DAILY_DEMURRAGE_RATE) / DEMURRAGE_BASIS_POINTS;
-        }
-        
-        uint256 newBalance = balance * demurrageMultiplier / DEMURRAGE_BASIS_POINTS;
-        uint256 demurrageAmount = balance - newBalance;
-        
-        if (demurrageAmount > 0) {
-            _burn(user, demurrageAmount);
-            emit DemurrageApplied(user, demurrageAmount, newBalance);
-        }
-        
-        lastDemurrageUpdate[user] = currentTime;
     }
     
     /**
@@ -125,7 +97,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         _transfer(msg.sender, address(this), amount);
         stakedAmount[msg.sender] = amount;
         isActiveParticipant[msg.sender] = true;
-        lastDemurrageUpdate[msg.sender] = block.timestamp;
         
         emit StakeDeposited(msg.sender, amount);
     }
@@ -135,9 +106,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      */
     function withdrawStake() external nonReentrant onlyActiveParticipant {
         require(block.timestamp >= cooldownEndTime[msg.sender], "Cooldown not expired");
-        
-        // Apply demurrage to staked amount
-        applyDemurrage(msg.sender);
         
         uint256 stakedBalance = stakedAmount[msg.sender];
         require(stakedBalance > 0, "No stake to withdraw");
@@ -153,28 +121,25 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     /**
      * @dev Transfer with cooldown and fee mechanics
      */
-    function transfer(address to, uint256 amount) public override returns (bool) {
+    function transfer(address to, uint256 amount) public override onlyDuringGame returns (bool) {
         require(to != address(0), "Cannot transfer to zero address");
         require(amount > 0, "Cannot transfer zero amount");
         require(isActiveParticipant[msg.sender], "Must be active participant");
         
-        // Apply demurrage to sender
-        applyDemurrage(msg.sender);
-        
-        // Check cooldown (skip for owner if no cooldown is set)
-        if (cooldownEndTime[msg.sender] > 0) {
-            require(block.timestamp >= cooldownEndTime[msg.sender], "Transfer cooldown active");
+        // Check give cooldown
+        if (giveCooldownEndTime[msg.sender] > 0) {
+            require(block.timestamp >= giveCooldownEndTime[msg.sender], "Give cooldown active");
         }
         
         // Calculate transfer fee
-        uint256 feeAmount = amount * TRANSFER_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 feeAmount = amount * TRANSFER_FEE_BASIS_POINTS / 10000;
         uint256 transferAmount = amount - feeAmount;
         
         // Calculate cooldown based on amount and epoch timing
         uint256 cooldown = computeCooldown(amount);
         
         // Update cooldown
-        cooldownEndTime[msg.sender] = block.timestamp + cooldown;
+        giveCooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Transfer tokens
         _transfer(msg.sender, to, transferAmount);
@@ -277,16 +242,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Get user's current balance with demurrage applied
-     * @param user Address to check
-     * @return Current balance after demurrage
-     */
-    function getCurrentBalance(address user) external returns (uint256) {
-        applyDemurrage(user);
-        return balanceOf(user);
-    }
-    
-    /**
      * @dev Bridge mint function (only callable by bridge)
      * @param to Recipient address
      * @param amount Amount to mint
@@ -318,7 +273,71 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         currentEpoch = currentEpoch + 1;
         epochStartTime = block.timestamp;
         
+        // Start waiting period
+        isWaitingPeriod = true;
+        nextEpochStartTime = block.timestamp + WAITING_PERIOD;
+        
         emit EpochFinalized(currentEpoch - 1, msg.sender);
+    }
+
+    // New function: sign up for next epoch during waiting period
+    function signupForNextEpoch() external payable onlyDuringWaiting {
+        require(!isActiveParticipant[msg.sender], "Already active");
+        // Add to pending participants if not already
+        for (uint256 i = 0; i < pendingParticipants.length; i++) {
+            if (pendingParticipants[i] == msg.sender) revert("Already signed up");
+        }
+        // Calculate join fee based on time elapsed in waiting period
+        uint256 elapsed = block.timestamp + WAITING_PERIOD - nextEpochStartTime;
+        uint256 fee = BASE_JOIN_FEE + ((MAX_JOIN_FEE - BASE_JOIN_FEE) * elapsed / WAITING_PERIOD);
+        require(msg.value >= fee, "Insufficient join fee");
+        joinFeesPaid[msg.sender] = fee;
+        pendingParticipants.push(msg.sender);
+        // Refund any excess
+        if (msg.value > fee) {
+            payable(msg.sender).transfer(msg.value - fee);
+        }
+    }
+
+    // New function: start the next epoch (can be called by anyone after waiting period)
+    function startNextEpoch() external {
+        require(isWaitingPeriod, "Not in waiting period");
+        require(block.timestamp >= nextEpochStartTime, "Waiting period not over");
+        // Expire all previously active participants and burn/reset stakes
+        for (uint256 i = 0; i < lastEpochParticipants.length; i++) {
+            address user = lastEpochParticipants[i];
+            isActiveParticipant[user] = false;
+            // Reset average dump data
+            delete averageDumpData[user];
+            // Burn/reset staked tokens
+            if (stakedAmount[user] > 0) {
+                // Burn staked tokens (they are held by contract)
+                _burn(address(this), stakedAmount[user]);
+                stakedAmount[user] = 0;
+            }
+        }
+        delete lastEpochParticipants;
+        uint256 totalAssigned = 0;
+        uint256 n = pendingParticipants.length;
+        for (uint256 i = 0; i < n; i++) {
+            address user = pendingParticipants[i];
+            isActiveParticipant[user] = true;
+            lastEpochParticipants.push(user);
+            uint256 rand = uint256(keccak256(abi.encodePacked(blockhash(block.number-1), user, i, block.timestamp)));
+            uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18;
+            _mint(user, amount);
+            totalAssigned += amount;
+            // Initialize average dump data
+            averageDumpData[user] = AverageDumpData({
+                lastUpdateTime: block.timestamp,
+                cumulativeDumpTime: amount * 1,
+                totalTimeInEpoch: 1,
+                lastBalance: amount
+            });
+        }
+        delete pendingParticipants;
+        isWaitingPeriod = false;
+        epochStartTime = block.timestamp;
     }
     
     /**
@@ -334,29 +353,27 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      * @param victim Address to steal from
      * @param amount Amount to steal
      */
-    function stealDump(address victim, uint256 amount) external nonReentrant onlyActiveParticipant {
+    function stealDump(address victim, uint256 amount) external nonReentrant onlyActiveParticipant onlyDuringGame {
         require(victim != address(0), "Cannot steal from zero address");
         require(victim != msg.sender, "Cannot steal from yourself");
         require(amount > 0, "Cannot steal zero amount");
         require(isActiveParticipant[victim], "Can only steal from active participants");
         
-        // Apply demurrage to both thief and victim
-        applyDemurrage(msg.sender);
-        applyDemurrage(victim);
-        
-        // Check theft cooldown
-        require(block.timestamp >= theftCooldownEndTime[msg.sender], "Theft cooldown active");
+        // Check take cooldown
+        require(block.timestamp >= takeCooldownEndTime[msg.sender], "Take cooldown active");
         
         // Check victim has enough balance
         uint256 victimBalance = balanceOf(victim);
         require(victimBalance >= amount, "Victim has insufficient balance");
         
         // Calculate theft fee (same as transfer fee)
-        uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / 10000;
         uint256 theftAmount = amount - feeAmount;
         
-        // Calculate theft cooldown (amount-scaled like transfers)
+        // Calculate theft cooldown (amount-scaled, epoch-aware)
         uint256 cooldown = computeTheftCooldown(amount);
+        uint256 epochTimeLeft = getEpochTimeRemaining();
+        require(cooldown <= epochTimeLeft, "Cooldown exceeds time left in epoch; theft not allowed");
         
         // Calculate epoch-weighted theft cost (increases dramatically near snapshot)
         uint256 theftCost = calculateTheftCost(amount);
@@ -366,7 +383,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         require(thiefBalance >= theftCost, "Insufficient balance to pay theft cost");
         
         // Update theft cooldown
-        theftCooldownEndTime[msg.sender] = block.timestamp + cooldown;
+        takeCooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Execute the theft
         _transfer(victim, msg.sender, theftAmount);
@@ -385,23 +402,23 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Compute theft cooldown based on amount stolen
+     * @dev Compute theft cooldown based on amount stolen and time left in epoch
      * @param amount Amount being stolen
      * @return cooldown Cooldown duration in seconds
      */
     function computeTheftCooldown(uint256 amount) public view returns (uint256) {
         uint256 tMin = THEFT_COOLDOWN_MIN;
-        uint256 tMax = THEFT_COOLDOWN_MAX;
-        uint256 k = 2; // Quadratic scaling
-        
+        uint256 epochTimeLeft = getEpochTimeRemaining();
         if (amount == 0) return tMin;
-        
+        // Scaled amount: 0 (none) to 1e18 (all supply)
         uint256 scaled = amount * 1e18 / _totalSupply;
-        uint256 cooldown = tMin + (
-            (tMax - tMin) * scaled * scaled / (1e18 * 1e18)
-        );
-        
-        return cooldown > tMax ? tMax : cooldown;
+        // Exponential scaling: cooldown = tMin + (epochTimeLeft) * (scaled^3)
+        // This means stealing a lot late in the epoch can result in a cooldown longer than the epoch
+        // (scaled^3 = scaled * scaled * scaled / 1e36 for 18 decimals)
+        uint256 scaledCubed = scaled * scaled / 1e18;
+        scaledCubed = scaledCubed * scaled / 1e18;
+        uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
+        return cooldown;
     }
     
     /**
@@ -414,7 +431,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         uint256 epochDuration = EPOCH_DURATION;
         
         // Base cost is 5% of amount stolen (cheapest on day 1)
-        uint256 baseCost = amount * 500 / DEMURRAGE_BASIS_POINTS; // 5%
+        uint256 baseCost = amount * 500 / 10000; // 5%
         
         // Calculate how much of the epoch has passed (0 = start, 1 = end)
         uint256 epochProgress = (epochDuration - timeUntilEpochEnd) * 1e18 / epochDuration;
@@ -463,10 +480,70 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      * @return timeRemaining Time remaining on cooldown
      */
     function getTheftCooldownStatus(address user) external view returns (bool isOnCooldown, uint256 timeRemaining) {
-        if (block.timestamp >= theftCooldownEndTime[user]) {
+        if (block.timestamp >= takeCooldownEndTime[user]) {
             return (false, 0);
         } else {
-            return (true, theftCooldownEndTime[user] - block.timestamp);
+            return (true, takeCooldownEndTime[user] - block.timestamp);
         }
+    }
+
+    /**
+     * @dev Get give cooldown status for an address
+     * @param user Address to check
+     * @return isOnCooldown Whether user is on give cooldown
+     * @return timeRemaining Time remaining on cooldown
+     */
+    function getGiveCooldownStatus(address user) external view returns (bool isOnCooldown, uint256 timeRemaining) {
+        if (block.timestamp >= giveCooldownEndTime[user]) {
+            return (false, 0);
+        } else {
+            return (true, giveCooldownEndTime[user] - block.timestamp);
+        }
+    }
+
+    struct AverageDumpData {
+        uint256 lastUpdateTime;
+        uint256 cumulativeDumpTime;
+        uint256 totalTimeInEpoch;
+        uint256 lastBalance;
+    }
+    mapping(address => AverageDumpData) public averageDumpData;
+
+    // Update average on every balance change
+    function _updateAverageDump(address user) internal {
+        AverageDumpData storage data = averageDumpData[user];
+        uint256 nowTime = block.timestamp;
+        if (data.lastUpdateTime == 0) {
+            // Late joiner: penalize by assuming max DUMP for missed time
+            data.cumulativeDumpTime = MAX_DUMP_PER_PLAYER * (nowTime - epochStartTime);
+            data.lastBalance = balanceOf(user);
+            data.lastUpdateTime = nowTime;
+            data.totalTimeInEpoch = nowTime - epochStartTime;
+            return;
+        }
+        data.cumulativeDumpTime += data.lastBalance * (nowTime - data.lastUpdateTime);
+        data.lastUpdateTime = nowTime;
+        data.lastBalance = balanceOf(user);
+        data.totalTimeInEpoch += nowTime - data.lastUpdateTime;
+    }
+
+    // Override _transfer to update averages
+    function _transfer(address from, address to, uint256 amount) internal override {
+        _updateAverageDump(from);
+        _updateAverageDump(to);
+        super._transfer(from, to, amount);
+        // Update lastBalance after transfer
+        averageDumpData[from].lastBalance = balanceOf(from);
+        averageDumpData[to].lastBalance = balanceOf(to);
+    }
+
+    // Function to get average DUMP for a user in the current epoch
+    function getAverageDump(address user) public view returns (uint256) {
+        AverageDumpData storage data = averageDumpData[user];
+        uint256 nowTime = block.timestamp;
+        uint256 cumDumpTime = data.cumulativeDumpTime + data.lastBalance * (nowTime - data.lastUpdateTime);
+        uint256 totalTime = (nowTime - epochStartTime);
+        if (totalTime == 0) return data.lastBalance;
+        return cumDumpTime / totalTime;
     }
 }

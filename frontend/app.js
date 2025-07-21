@@ -1,5 +1,5 @@
-// DUMP/GLORY Frontend Application
-class DumpGloryApp {
+// GLORY/DUMP Frontend Application
+class GloryDumpApp {
     constructor() {
         this.provider = null;
         this.signer = null;
@@ -56,6 +56,15 @@ class DumpGloryApp {
         // Execute buyback
         document.getElementById('executeBuyback').addEventListener('click', () => {
             this.executeBuyback();
+        });
+        
+        // Theft functionality
+        document.getElementById('theftSlider').addEventListener('input', (e) => {
+            this.updateTheftAmount(e.target.value);
+        });
+        
+        document.getElementById('stealButton').addEventListener('click', () => {
+            this.executeTheft();
         });
         
         // Wallet account changes
@@ -301,10 +310,21 @@ class DumpGloryApp {
             const cooldown = await this.dumpToken.computeCooldown(amountWei);
             const fee = amountWei.mul(30).div(10000); // 0.3% fee
             
+            // Get epoch info for context
+            const timeRemaining = await this.dumpToken.getEpochTimeRemaining();
+            const epochProgress = 30 * 24 * 3600 - timeRemaining; // 30 days in seconds
+            const daysIntoEpoch = Math.floor(epochProgress / (24 * 3600));
+            
             document.getElementById('cooldownTime').textContent = 
                 this.formatTimeRemaining(cooldown);
             document.getElementById('transferFee').textContent = 
                 this.formatTokenAmount(fee, 18);
+            
+            // Add epoch context
+            const cooldownInfo = document.getElementById('cooldownTime').parentElement;
+            if (daysIntoEpoch > 0) {
+                cooldownInfo.title = `Day ${daysIntoEpoch} of epoch - cooldowns increase over time`;
+            }
             
         } catch (error) {
             console.error('Error updating transfer info:', error);
@@ -386,6 +406,96 @@ class DumpGloryApp {
         }
     }
     
+    updateTheftAmount(percentage) {
+        const balance = parseFloat(document.getElementById('dumpBalance').textContent.split(' ')[0]);
+        const amount = (balance * percentage / 100).toFixed(2);
+        document.getElementById('theftAmount').textContent = amount + ' DUMP';
+        
+        // Update theft info
+        this.updateTheftInfo(amount);
+    }
+    
+    async updateTheftInfo(amount) {
+        try {
+            const victim = document.getElementById('theftTarget').value;
+            if (!victim || !ethers.utils.isAddress(victim)) {
+                return;
+            }
+            
+            const amountWei = ethers.utils.parseEther(amount.toString());
+            const cooldown = await this.dumpToken.computeTheftCooldown(amountWei);
+            const fee = amountWei.mul(30).div(10000); // 0.3% fee
+            const theftCost = await this.dumpToken.calculateTheftCost(amountWei);
+            
+            // Get epoch info for context
+            const timeRemaining = await this.dumpToken.getEpochTimeRemaining();
+            const epochProgress = 30 * 24 * 3600 - timeRemaining; // 30 days in seconds
+            const daysIntoEpoch = Math.floor(epochProgress / (24 * 3600));
+            const hoursRemaining = Math.floor(timeRemaining / 3600);
+            
+            document.getElementById('theftCooldownTime').textContent = 
+                this.formatTimeRemaining(cooldown);
+            document.getElementById('theftFee').textContent = 
+                this.formatTokenAmount(fee, 18);
+            document.getElementById('theftCost').textContent = 
+                this.formatTokenAmount(theftCost, 18);
+            
+            // Add epoch context and cost phase info
+            const theftInfo = document.getElementById('theftCost').parentElement;
+            let phaseInfo = `Day ${daysIntoEpoch} of epoch`;
+            
+            if (timeRemaining < 3600) { // Less than 1 hour
+                phaseInfo += ` - EXPONENTIAL costs (${hoursRemaining}h remaining) - MEME TERRITORY!`;
+            } else if (timeRemaining < 86400) { // Less than 1 day
+                phaseInfo += ` - QUADRATIC costs (${hoursRemaining}h remaining) - HIGH RISK!`;
+            } else if (timeRemaining < 7 * 86400) { // Less than 1 week
+                phaseInfo += ` - LINEAR costs (${daysIntoEpoch} days in) - MODERATE RISK`;
+            } else {
+                phaseInfo += ` - GRADUAL costs (${daysIntoEpoch} days in) - LOW RISK`;
+            }
+            
+            theftInfo.title = phaseInfo;
+            
+        } catch (error) {
+            console.error('Error updating theft info:', error);
+        }
+    }
+    
+    async executeTheft() {
+        if (!this.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
+        
+        const victim = document.getElementById('theftTarget').value;
+        const amount = document.getElementById('theftAmount').textContent.split(' ')[0];
+        
+        if (!victim || !ethers.utils.isAddress(victim)) {
+            alert('Please enter a valid victim address');
+            return;
+        }
+        
+        if (parseFloat(amount) <= 0) {
+            alert('Please select an amount to steal');
+            return;
+        }
+        
+        try {
+            const amountWei = ethers.utils.parseEther(amount);
+            const tx = await this.dumpToken.stealDump(victim, amountWei);
+            
+            alert('Theft transaction sent! Hash: ' + tx.hash);
+            await tx.wait();
+            
+            // Reload data
+            await this.loadGameData();
+            
+        } catch (error) {
+            console.error('Error executing theft:', error);
+            alert('Failed to execute theft: ' + error.message);
+        }
+    }
+    
     updateUI() {
         const connectButton = document.getElementById('connectWallet');
         const walletAddress = document.getElementById('walletAddress');
@@ -429,5 +539,5 @@ class DumpGloryApp {
 
 // Initialize the app when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    window.dumpGloryApp = new DumpGloryApp();
+    window.gloryDumpApp = new GloryDumpApp();
 });

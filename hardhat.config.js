@@ -3,11 +3,29 @@ require("@nomicfoundation/hardhat-toolbox");
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
+    version: "0.8.24",  // Latest with all security fixes
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200
+        runs: 500,      // Higher for your game's frequency
+        details: {
+          yul: true,    // Enable Yul optimizer
+          yulDetails: {
+            optimizerSteps: "u",  // Ultra optimization
+            stackAllocation: true // Better stack management
+          }
+        }
+      }
+    },
+    viaIR: true,      // Enable intermediate representation
+    outputSelection: {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers"
+        ]
       }
     }
   },

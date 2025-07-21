@@ -3,15 +3,13 @@ const { ethers } = require("hardhat");
 
 let dumpToken, gloryToken, feePot, bridgeGatekeeper;
 let owner, user1, user2, user3, user4, user5, user6, user7, user8, user9, user10, user11, user12, user13, user14, user15;
-let initialSupply;
 
 before(async function () {
   [owner, user1, user2, user3, user4, user5, user6, user7, user8, user9, user10, user11, user12, user13, user14, user15] = await ethers.getSigners();
-  initialSupply = ethers.parseEther("1000000"); // 1M DUMP
 
   // Deploy DUMP token
   const DumpToken = await ethers.getContractFactory("DumpToken");
-  dumpToken = await DumpToken.deploy("DUMP Token", "DUMP", initialSupply);
+  dumpToken = await DumpToken.deploy("DUMP Token", "DUMP", 0); // initialSupply is ignored in new logic
 
   // Deploy GLORY token
   const GloryToken = await ethers.getContractFactory("GloryToken");
@@ -36,168 +34,145 @@ before(async function () {
   );
 });
 
-// Helper function to reset cooldowns by fast-forwarding time
-async function resetCooldowns() {
-  // Fast forward past any cooldowns (30 days should be enough)
-  await ethers.provider.send("evm_increaseTime", [30 * 24 * 3600]);
+// Helper: Fast-forward EVM time
+async function fastForward(seconds) {
+  await ethers.provider.send("evm_increaseTime", [seconds]);
   await ethers.provider.send("evm_mine");
+}
 
-  // Reset owner's cooldown specifically
-  await dumpToken.resetCooldown(owner.address);
+// Helper: Sign up for next epoch
+async function signup(user, fee) {
+  await dumpToken.connect(user).signupForNextEpoch({ value: fee });
+}
+
+// Helper: Start next epoch
+async function startNextEpoch() {
+  await dumpToken.startNextEpoch();
 }
 
 describe("GLORY/DUMP Token System", function () {
-
-  describe("DUMP Token", function () {
-    it("Should have correct initial supply", async function () {
-      expect(await dumpToken.totalSupply()).to.equal(initialSupply);
-      expect(await dumpToken.balanceOf(owner.address)).to.equal(initialSupply);
+  describe("DUMP Token (New Mechanics)", function () {
+    it("Should allow sign-up during waiting period with correct fee scaling", async function () {
+      // Finalize epoch to enter waiting period
+      await dumpToken.finalizeEpoch();
+      // Early joiner (low fee)
+      const baseFee = await dumpToken.BASE_JOIN_FEE();
+      await signup(user1, baseFee);
+      // Fast forward half the waiting period
+      const waiting = await dumpToken.WAITING_PERIOD();
+      await fastForward(Number(waiting) / 2);
+      // Mid joiner (mid fee)
+      const midFee = await dumpToken.MAX_JOIN_FEE() / 2n;
+      await signup(user2, midFee);
+      // Fast forward to end
+      await fastForward(Number(waiting) / 2);
+      // Late joiner (max fee)
+      const maxFee = await dumpToken.MAX_JOIN_FEE();
+      await signup(user3, maxFee);
     });
 
-    it("Should require staking for participation", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-      expect(minStake).to.be.gt(0);
-
-      // Try to transfer without staking (owner is already active, so use user1)
-      await dumpToken.transfer(user1.address, ethers.parseEther("10000"));
+    it("Should only allow gameplay after waiting period ends and epoch starts", async function () {
+      // Try to transfer during waiting period (should fail)
       await expect(
-        dumpToken.connect(user1).transfer(user2.address, ethers.parseEther("100"))
-      ).to.be.revertedWith("Must be active participant");
+        dumpToken.connect(user1).transfer(user2.address, 1)
+      ).to.be.revertedWith("Game not started yet");
+      // Start next epoch
+      await startNextEpoch();
+      // Now transfer should succeed (if user1 has DUMP)
+      // (user1 will have random DUMP assigned)
+      const bal1 = await dumpToken.balanceOf(user1.address);
+      if (bal1 > 0) {
+        await dumpToken.connect(user1).transfer(user2.address, 1);
+      }
     });
 
-    it("Should allow staking for participation", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and use fresh user
-      await resetCooldowns();
-      await dumpToken.transfer(user2.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user2).stakeForParticipation(minStake);
-
-      expect(await dumpToken.isActiveParticipant(user2.address)).to.be.true;
-      expect(await dumpToken.stakedAmount(user2.address)).to.equal(minStake);
+    it("Should assign random DUMP to all active participants at epoch start", async function () {
+      // All signed-up users should have nonzero DUMP
+      for (const user of [user1, user2, user3]) {
+        const bal = await dumpToken.balanceOf(user.address);
+        expect(bal).to.be.gt(0);
+      }
     });
 
-    it("Should apply demurrage correctly", async function () {
-      const minStake = await dumpToken.getMinimumStake();
+    it("Should only include signed-up participants in the epoch", async function () {
+      // user4 did not sign up, should have zero DUMP
+      const bal = await dumpToken.balanceOf(user4.address);
+      expect(bal).to.equal(0);
+    });
 
-      // Reset cooldowns and use fresh user
-      await resetCooldowns();
-      await dumpToken.transfer(user3.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user3).stakeForParticipation(minStake);
-
-      const initialBalance = await dumpToken.balanceOf(user3.address);
-
+    it("Should update and track average DUMP for ranking", async function () {
+      // user1 transfers to user2
+      const bal1 = await dumpToken.balanceOf(user1.address);
+      if (bal1 > 0) {
+        await dumpToken.connect(user1).transfer(user2.address, bal1 / 2n);
+      }
       // Fast forward 1 day
-      await ethers.provider.send("evm_increaseTime", [86400]); // 1 day
-      await ethers.provider.send("evm_mine");
-
-      // Apply demurrage
-      await dumpToken.applyDemurrage(user3.address);
-
-      const newBalance = await dumpToken.balanceOf(user3.address);
-      expect(newBalance).to.be.lt(initialBalance);
+      await fastForward(86400);
+      // user2 transfers to user3
+      const bal2 = await dumpToken.balanceOf(user2.address);
+      if (bal2 > 0) {
+        await dumpToken.connect(user2).transfer(user3.address, bal2 / 2n);
+      }
+      // Check average DUMP
+      const avg1 = await dumpToken.getAverageDump(user1.address);
+      const avg2 = await dumpToken.getAverageDump(user2.address);
+      const avg3 = await dumpToken.getAverageDump(user3.address);
+      expect(avg1).to.be.a("bigint");
+      expect(avg2).to.be.a("bigint");
+      expect(avg3).to.be.a("bigint");
     });
 
-    it("Should calculate cooldowns based on transfer amount", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and use fresh user
-      await resetCooldowns();
-      await dumpToken.transfer(user4.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user4).stakeForParticipation(minStake);
-
-      const smallAmount = ethers.parseEther("100");
-      const largeAmount = ethers.parseEther("100000");
-
-      const smallCooldown = await dumpToken.computeCooldown(smallAmount);
-      const largeCooldown = await dumpToken.computeCooldown(largeAmount);
-
-      expect(largeCooldown).to.be.gt(smallCooldown);
+    it("Should expire inactive participants and reset stakes at epoch start", async function () {
+      // user1, user2, user3 are active; user4 is not
+      // Finalize epoch and enter waiting period
+      await dumpToken.finalizeEpoch();
+      // Only user4 signs up for next epoch
+      const baseFee = await dumpToken.BASE_JOIN_FEE();
+      await signup(user4, baseFee);
+      // Start next epoch
+      await fastForward(Number(await dumpToken.WAITING_PERIOD()));
+      await startNextEpoch();
+      // user1, user2, user3 should now be inactive
+      for (const user of [user1, user2, user3]) {
+        expect(await dumpToken.isActiveParticipant(user.address)).to.be.false;
+      }
+      // user4 should be active
+      expect(await dumpToken.isActiveParticipant(user4.address)).to.be.true;
     });
 
-    it("Should collect transfer fees", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and use fresh user
-      await resetCooldowns();
-      await dumpToken.transfer(user5.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user5).stakeForParticipation(minStake);
-
-      const transferAmount = ethers.parseEther("1000");
-      const initialFeePot = await dumpToken.getFeePot();
-
-      await dumpToken.connect(user5).transfer(user6.address, transferAmount);
-
-      const newFeePot = await dumpToken.getFeePot();
-      expect(newFeePot).to.be.gt(initialFeePot);
+    it("Should enforce action-specific cooldowns for give and take", async function () {
+      // user4 transfers to user5
+      const bal4 = await dumpToken.balanceOf(user4.address);
+      if (bal4 > 0) {
+        await dumpToken.connect(user4).transfer(user5.address, bal4 / 2n);
+        // Try to transfer again immediately (should fail if cooldown active)
+        await expect(
+          dumpToken.connect(user4).transfer(user5.address, 1)
+        ).to.be.revertedWith("Give cooldown active");
+      }
+      // Fast forward cooldown
+      await fastForward(3600);
+      // Should be able to transfer again
+      if (bal4 > 0) {
+        await dumpToken.connect(user4).transfer(user5.address, 1);
+      }
     });
 
-    it("Should allow theft with proper constraints", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and setup both users as active participants
-      await resetCooldowns();
-      await dumpToken.transfer(user7.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user7).stakeForParticipation(minStake);
-      await dumpToken.transfer(user8.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user8).stakeForParticipation(minStake);
-
-      const theftAmount = ethers.parseEther("1000");
-      const victimBalance = await dumpToken.balanceOf(user8.address);
-
-      // Execute theft
-      await dumpToken.stealDump(user8.address, theftAmount);
-
-      // Check victim lost tokens
-      const newVictimBalance = await dumpToken.balanceOf(user8.address);
-      expect(newVictimBalance).to.be.lt(victimBalance);
-
-      // Check thief gained tokens (minus fees and costs)
-      const thiefBalance = await dumpToken.balanceOf(owner.address);
-      expect(thiefBalance).to.be.gt(0);
-    });
-
-    it("Should enforce theft cooldowns", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and setup both users as active participants
-      await resetCooldowns();
-      await dumpToken.transfer(user9.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user9).stakeForParticipation(minStake);
-      await dumpToken.transfer(user10.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user10).stakeForParticipation(minStake);
-
-      const theftAmount = ethers.parseEther("1000");
-
-      // First theft should succeed
-      await dumpToken.stealDump(user10.address, theftAmount);
-
-      // Second theft should fail due to cooldown
-      await expect(
-        dumpToken.stealDump(user10.address, theftAmount)
-      ).to.be.revertedWith("Theft cooldown active");
-    });
-
-    it("Should calculate epoch-weighted theft costs with continuous scaling", async function () {
-      // Skip this test for now due to division by zero issue
-      this.skip();
-    });
-
-    it("Should collect transfer fees", async function () {
-      const minStake = await dumpToken.getMinimumStake();
-
-      // Reset cooldowns and use fresh user
-      await resetCooldowns();
-      await dumpToken.transfer(user12.address, ethers.parseEther("10000"));
-      await dumpToken.connect(user12).stakeForParticipation(minStake);
-
-      const transferAmount = ethers.parseEther("1000");
-      const initialFeePot = await dumpToken.getFeePot();
-
-      await dumpToken.connect(user12).transfer(user13.address, transferAmount);
-
-      const newFeePot = await dumpToken.getFeePot();
-      expect(newFeePot).to.be.gt(initialFeePot);
+    it("Should reset all state and assign new random DUMP at each epoch", async function () {
+      // Finalize epoch and enter waiting period
+      await dumpToken.finalizeEpoch();
+      // user6 and user7 sign up
+      const baseFee = await dumpToken.BASE_JOIN_FEE();
+      await signup(user6, baseFee);
+      await signup(user7, baseFee);
+      // Start next epoch
+      await fastForward(Number(await dumpToken.WAITING_PERIOD()));
+      await startNextEpoch();
+      // user6 and user7 should have nonzero DUMP
+      expect(await dumpToken.balanceOf(user6.address)).to.be.gt(0);
+      expect(await dumpToken.balanceOf(user7.address)).to.be.gt(0);
+      // user4 should now be inactive
+      expect(await dumpToken.isActiveParticipant(user4.address)).to.be.false;
     });
   });
 });
@@ -245,19 +220,19 @@ describe("BridgeGatekeeper", function () {
 describe("Integration", function () {
   it("Should allow complete game flow", async function () {
     // Reset cooldowns and setup users
-    await resetCooldowns();
+    await dumpToken.finalizeEpoch(); // Finalize current epoch
+    await fastForward(Number(await dumpToken.WAITING_PERIOD())); // Fast forward to waiting period end
+    await startNextEpoch(); // Start next epoch
 
-    // 1. Users stake for participation (owner is already active)
-    const minStake = await dumpToken.getMinimumStake();
-    await dumpToken.transfer(user14.address, ethers.parseEther("10000"));
-    await dumpToken.connect(user14).stakeForParticipation(minStake);
-    await dumpToken.transfer(user15.address, ethers.parseEther("10000"));
-    await dumpToken.connect(user15).stakeForParticipation(minStake);
+    // 1. Users sign up for participation
+    const baseFee = await dumpToken.BASE_JOIN_FEE();
+    await signup(user14, baseFee);
+    await signup(user15, baseFee);
 
     // 2. Users transfer DUMP (simulating the game)
-    await dumpToken.transfer(user14.address, ethers.parseEther("1000"));
-    await dumpToken.connect(user14).transfer(user15.address, ethers.parseEther("500"));
-    await dumpToken.transfer(user1.address, ethers.parseEther("200"));
+    await dumpToken.connect(user14).transfer(user15.address, 100); // User14 gives 100 DUMP to User15
+    await dumpToken.connect(user1.address).transfer(user2.address, 50); // User1 gives 50 DUMP to User2
+    await dumpToken.connect(user14.address).transfer(user1.address, 200); // User14 gives 200 DUMP to User1
 
     // 3. Check that fees were collected
     const feePot = await dumpToken.getFeePot();

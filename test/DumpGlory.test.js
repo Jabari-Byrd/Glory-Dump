@@ -449,3 +449,107 @@ describe("Bug Bounty System", function () {
     expect(newReserve).to.equal(initialReserve - smallBounty);
   });
 });
+
+describe("GloryToken Incremental Leaderboard", function () {
+  it("should maintain a sorted leaderboard as balances are updated", async function () {
+    // Setup: make users active participants in DumpToken
+    const minStake = await dumpToken.getMinimumStake();
+    await dumpToken.transfer(user1.address, ethers.parseEther("10000"));
+    await dumpToken.connect(user1).stakeForParticipation(minStake);
+    await dumpToken.transfer(user2.address, ethers.parseEther("10000"));
+    await dumpToken.connect(user2).stakeForParticipation(minStake);
+    await dumpToken.transfer(user3.address, ethers.parseEther("10000"));
+    await dumpToken.connect(user3).stakeForParticipation(minStake);
+
+    // Record epoch balances
+    await gloryToken.recordEpochBalance(user1.address, ethers.parseEther("100"));
+    await gloryToken.recordEpochBalance(user2.address, ethers.parseEther("50"));
+    await gloryToken.recordEpochBalance(user3.address, ethers.parseEther("200"));
+
+    // Get leaderboard (should be sorted: user2, user1, user3)
+    const leaderboard = await gloryToken.getLeaderboard();
+    expect(leaderboard[0]).to.equal(user2.address);
+    expect(leaderboard[1]).to.equal(user1.address);
+    expect(leaderboard[2]).to.equal(user3.address);
+  });
+
+  it("should reorder leaderboard when a user's balance changes", async function () {
+    // user1 now has the lowest balance
+    await gloryToken.recordEpochBalance(user1.address, ethers.parseEther("10"));
+    const leaderboard = await gloryToken.getLeaderboard();
+    expect(leaderboard[0]).to.equal(user1.address);
+  });
+
+  it("should remove a user from the leaderboard if their balance is set to 0", async function () {
+    // Remove user2
+    await gloryToken.recordEpochBalance(user2.address, 0);
+    const leaderboard = await gloryToken.getLeaderboard();
+    expect(leaderboard).to.not.include(user2.address);
+  });
+});
+
+describe("GloryToken Skip List Leaderboard - Advanced", function () {
+  it("should handle many users and remain sorted", async function () {
+    const minStake = await dumpToken.getMinimumStake();
+    const users = [user1, user2, user3, user4, user5, user6, user7, user8, user9, user10];
+    // Make all users active
+    for (let i = 0; i < users.length; i++) {
+      await dumpToken.transfer(users[i].address, ethers.parseEther("10000"));
+      await dumpToken.connect(users[i]).stakeForParticipation(minStake);
+    }
+    // Assign random balances
+    const balances = ["500", "100", "900", "300", "700", "200", "800", "400", "600", "1000"];
+    for (let i = 0; i < users.length; i++) {
+      await gloryToken.recordEpochBalance(users[i].address, ethers.parseEther(balances[i]));
+    }
+    // Get leaderboard and check sorted order (lowest to highest)
+    const leaderboard = await gloryToken.getLeaderboard();
+    let prev = await gloryToken.epochs(1).averageDumpHeld(leaderboard[0]);
+    for (let i = 1; i < leaderboard.length; i++) {
+      const curr = await gloryToken.epochs(1).averageDumpHeld(leaderboard[i]);
+      expect(curr).to.be.gte(prev); // Should be ascending
+      prev = curr;
+    }
+  });
+
+  it("should update leaderboard correctly when balances change dramatically", async function () {
+    // user5 drops to lowest balance
+    await gloryToken.recordEpochBalance(user5.address, ethers.parseEther("10"));
+    const leaderboard = await gloryToken.getLeaderboard();
+    expect(leaderboard[0]).to.equal(user5.address);
+    // user10 jumps to highest balance
+    await gloryToken.recordEpochBalance(user10.address, ethers.parseEther("2000"));
+    const leaderboard2 = await gloryToken.getLeaderboard();
+    expect(leaderboard2[leaderboard2.length - 1]).to.equal(user10.address);
+  });
+
+  it("should remove users with zero balance and keep leaderboard valid", async function () {
+    await gloryToken.recordEpochBalance(user3.address, 0);
+    await gloryToken.recordEpochBalance(user7.address, 0);
+    const leaderboard = await gloryToken.getLeaderboard();
+    expect(leaderboard).to.not.include(user3.address);
+    expect(leaderboard).to.not.include(user7.address);
+    // All remaining users should have nonzero balances
+    for (const addr of leaderboard) {
+      const bal = await gloryToken.epochs(1).averageDumpHeld(addr);
+      expect(bal).to.be.gt(0);
+    }
+  });
+
+  it("should maintain leaderboard integrity after many random operations", async function () {
+    // Randomly update balances
+    for (let i = 0; i < 20; i++) {
+      const idx = Math.floor(Math.random() * 10);
+      const newBal = ethers.parseEther((Math.floor(Math.random() * 1000) + 1).toString());
+      await gloryToken.recordEpochBalance(eval(`user${idx + 1}`).address, newBal);
+    }
+    // Check leaderboard is sorted
+    const leaderboard = await gloryToken.getLeaderboard();
+    let prev = await gloryToken.epochs(1).averageDumpHeld(leaderboard[0]);
+    for (let i = 1; i < leaderboard.length; i++) {
+      const curr = await gloryToken.epochs(1).averageDumpHeld(leaderboard[i]);
+      expect(curr).to.be.gte(prev);
+      prev = curr;
+    }
+  });
+});

@@ -20,6 +20,10 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public constant THEFT_COOLDOWN_MIN = 30; // 30 seconds minimum
     uint256 public constant THEFT_COOLDOWN_MAX = 1 hours; // 1 hour maximum
     uint256 public constant MAX_VIRTUAL_SIZE = 1000000; // Prevent overflow
+    uint256 public constant WAITING_PERIOD = 7 days;
+    uint256 public nextEpochStartTime;
+    bool public isWaitingPeriod;
+    address[] public pendingParticipants;
     
     // State variables
     uint256 public _totalSupply;
@@ -51,6 +55,15 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     
     modifier onlyBridge() {
         // TODO: Add bridge address check
+        _;
+    }
+
+    modifier onlyDuringGame() {
+        require(!isWaitingPeriod && block.timestamp >= nextEpochStartTime, "Game not started yet");
+        _;
+    }
+    modifier onlyDuringWaiting() {
+        require(isWaitingPeriod && block.timestamp < nextEpochStartTime, "Not in waiting period");
         _;
     }
     
@@ -104,7 +117,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     /**
      * @dev Transfer with cooldown and fee mechanics
      */
-    function transfer(address to, uint256 amount) public override returns (bool) {
+    function transfer(address to, uint256 amount) public override onlyDuringGame returns (bool) {
         require(to != address(0), "Cannot transfer to zero address");
         require(amount > 0, "Cannot transfer zero amount");
         require(isActiveParticipant[msg.sender], "Must be active participant");
@@ -256,7 +269,35 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         currentEpoch = currentEpoch + 1;
         epochStartTime = block.timestamp;
         
+        // Start waiting period
+        isWaitingPeriod = true;
+        nextEpochStartTime = block.timestamp + WAITING_PERIOD;
+        
         emit EpochFinalized(currentEpoch - 1, msg.sender);
+    }
+
+    // New function: sign up for next epoch during waiting period
+    function signupForNextEpoch() external onlyDuringWaiting {
+        require(!isActiveParticipant[msg.sender], "Already active");
+        // Add to pending participants if not already
+        for (uint256 i = 0; i < pendingParticipants.length; i++) {
+            if (pendingParticipants[i] == msg.sender) revert("Already signed up");
+        }
+        pendingParticipants.push(msg.sender);
+    }
+
+    // New function: start the next epoch (can be called by anyone after waiting period)
+    function startNextEpoch() external {
+        require(isWaitingPeriod, "Not in waiting period");
+        require(block.timestamp >= nextEpochStartTime, "Waiting period not over");
+        // Move pendingParticipants to active
+        for (uint256 i = 0; i < pendingParticipants.length; i++) {
+            address user = pendingParticipants[i];
+            isActiveParticipant[user] = true;
+        }
+        delete pendingParticipants;
+        isWaitingPeriod = false;
+        epochStartTime = block.timestamp;
     }
     
     /**
@@ -272,7 +313,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      * @param victim Address to steal from
      * @param amount Amount to steal
      */
-    function stealDump(address victim, uint256 amount) external nonReentrant onlyActiveParticipant {
+    function stealDump(address victim, uint256 amount) external nonReentrant onlyActiveParticipant onlyDuringGame {
         require(victim != address(0), "Cannot steal from zero address");
         require(victim != msg.sender, "Cannot steal from yourself");
         require(amount > 0, "Cannot steal zero amount");

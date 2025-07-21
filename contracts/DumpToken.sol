@@ -313,6 +313,13 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
             uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18; // at least 1 DUMP
             _mint(user, amount);
             totalAssigned += amount;
+            // Initialize average dump data
+            averageDumpData[user] = AverageDumpData({
+                lastUpdateTime: block.timestamp,
+                cumulativeDumpTime: amount * 1,
+                totalTimeInEpoch: 1,
+                lastBalance: amount
+            });
         }
         // Optionally mint to contract to keep supply consistent (not strictly needed for game)
         // _mint(address(this), INITIAL_DUMP_SUPPLY - totalAssigned);
@@ -480,5 +487,51 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         } else {
             return (true, giveCooldownEndTime[user] - block.timestamp);
         }
+    }
+
+    struct AverageDumpData {
+        uint256 lastUpdateTime;
+        uint256 cumulativeDumpTime;
+        uint256 totalTimeInEpoch;
+        uint256 lastBalance;
+    }
+    mapping(address => AverageDumpData) public averageDumpData;
+
+    // Update average on every balance change
+    function _updateAverageDump(address user) internal {
+        AverageDumpData storage data = averageDumpData[user];
+        uint256 nowTime = block.timestamp;
+        if (data.lastUpdateTime == 0) {
+            // Late joiner: penalize by assuming max DUMP for missed time
+            data.cumulativeDumpTime = MAX_DUMP_PER_PLAYER * (nowTime - epochStartTime);
+            data.lastBalance = balanceOf(user);
+            data.lastUpdateTime = nowTime;
+            data.totalTimeInEpoch = nowTime - epochStartTime;
+            return;
+        }
+        data.cumulativeDumpTime += data.lastBalance * (nowTime - data.lastUpdateTime);
+        data.lastUpdateTime = nowTime;
+        data.lastBalance = balanceOf(user);
+        data.totalTimeInEpoch += nowTime - data.lastUpdateTime;
+    }
+
+    // Override _transfer to update averages
+    function _transfer(address from, address to, uint256 amount) internal override {
+        _updateAverageDump(from);
+        _updateAverageDump(to);
+        super._transfer(from, to, amount);
+        // Update lastBalance after transfer
+        averageDumpData[from].lastBalance = balanceOf(from);
+        averageDumpData[to].lastBalance = balanceOf(to);
+    }
+
+    // Function to get average DUMP for a user in the current epoch
+    function getAverageDump(address user) public view returns (uint256) {
+        AverageDumpData storage data = averageDumpData[user];
+        uint256 nowTime = block.timestamp;
+        uint256 cumDumpTime = data.cumulativeDumpTime + data.lastBalance * (nowTime - data.lastUpdateTime);
+        uint256 totalTime = (nowTime - epochStartTime);
+        if (totalTime == 0) return data.lastBalance;
+        return cumDumpTime / totalTime;
     }
 }

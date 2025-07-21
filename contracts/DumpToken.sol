@@ -12,8 +12,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract DumpToken is ERC20, ReentrancyGuard, Ownable {
 
     // Constants
-    uint256 public constant DAILY_DEMURRAGE_RATE = 100; // 1% = 100 basis points
-    uint256 public constant DEMURRAGE_BASIS_POINTS = 10000;
     uint256 public constant TRANSFER_FEE_BASIS_POINTS = 30; // 0.3%
     uint256 public constant THEFT_FEE_BASIS_POINTS = 30; // 0.3% (same as transfer)
     uint256 public constant SYBIL_STAKE_PERCENTAGE = 5; // 0.05% of total supply
@@ -30,7 +28,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     uint256 public feePot;
     
     // Mappings
-    mapping(address => uint256) public lastDemurrageUpdate;
     mapping(address => uint256) public stakedAmount;
     mapping(address => uint256) public lastTransferTime;
     mapping(address => uint256) public giveCooldownEndTime; // for transfers (give/dump)
@@ -39,7 +36,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     mapping(address => bool) public isActiveParticipant;
     
     // Events
-    event DemurrageApplied(address indexed user, uint256 amount, uint256 newBalance);
     event StakeDeposited(address indexed user, uint256 amount);
     event StakeWithdrawn(address indexed user, uint256 amount);
     event TransferWithCooldown(address indexed from, address indexed to, uint256 amount, uint256 cooldown);
@@ -70,46 +66,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         
         // Owner is automatically an active participant
         isActiveParticipant[msg.sender] = true;
-        lastDemurrageUpdate[msg.sender] = block.timestamp;
-    }
-    
-    /**
-     * @dev Apply demurrage to an address
-     * @param user Address to apply demurrage to
-     */
-    function applyDemurrage(address user) public {
-        uint256 lastUpdate = lastDemurrageUpdate[user];
-        uint256 currentTime = block.timestamp;
-        
-        if (lastUpdate == 0) {
-            lastDemurrageUpdate[user] = currentTime;
-            return;
-        }
-        
-        uint256 daysSinceUpdate = (currentTime - lastUpdate) / 1 days;
-        if (daysSinceUpdate == 0) return;
-        
-        uint256 balance = balanceOf(user);
-        if (balance == 0) {
-            lastDemurrageUpdate[user] = currentTime;
-            return;
-        }
-        
-        // Calculate demurrage: balance * (1 - daily_rate)^days
-        uint256 demurrageMultiplier = DEMURRAGE_BASIS_POINTS;
-        for (uint256 i = 0; i < daysSinceUpdate; i++) {
-            demurrageMultiplier = demurrageMultiplier * (DEMURRAGE_BASIS_POINTS - DAILY_DEMURRAGE_RATE) / DEMURRAGE_BASIS_POINTS;
-        }
-        
-        uint256 newBalance = balance * demurrageMultiplier / DEMURRAGE_BASIS_POINTS;
-        uint256 demurrageAmount = balance - newBalance;
-        
-        if (demurrageAmount > 0) {
-            _burn(user, demurrageAmount);
-            emit DemurrageApplied(user, demurrageAmount, newBalance);
-        }
-        
-        lastDemurrageUpdate[user] = currentTime;
     }
     
     /**
@@ -124,7 +80,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         _transfer(msg.sender, address(this), amount);
         stakedAmount[msg.sender] = amount;
         isActiveParticipant[msg.sender] = true;
-        lastDemurrageUpdate[msg.sender] = block.timestamp;
         
         emit StakeDeposited(msg.sender, amount);
     }
@@ -134,9 +89,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      */
     function withdrawStake() external nonReentrant onlyActiveParticipant {
         require(block.timestamp >= cooldownEndTime[msg.sender], "Cooldown not expired");
-        
-        // Apply demurrage to staked amount
-        applyDemurrage(msg.sender);
         
         uint256 stakedBalance = stakedAmount[msg.sender];
         require(stakedBalance > 0, "No stake to withdraw");
@@ -157,16 +109,13 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         require(amount > 0, "Cannot transfer zero amount");
         require(isActiveParticipant[msg.sender], "Must be active participant");
         
-        // Apply demurrage to sender
-        applyDemurrage(msg.sender);
-        
         // Check give cooldown
         if (giveCooldownEndTime[msg.sender] > 0) {
             require(block.timestamp >= giveCooldownEndTime[msg.sender], "Give cooldown active");
         }
         
         // Calculate transfer fee
-        uint256 feeAmount = amount * TRANSFER_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 feeAmount = amount * TRANSFER_FEE_BASIS_POINTS / 10000;
         uint256 transferAmount = amount - feeAmount;
         
         // Calculate cooldown based on amount and epoch timing
@@ -276,16 +225,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Get user's current balance with demurrage applied
-     * @param user Address to check
-     * @return Current balance after demurrage
-     */
-    function getCurrentBalance(address user) external returns (uint256) {
-        applyDemurrage(user);
-        return balanceOf(user);
-    }
-    
-    /**
      * @dev Bridge mint function (only callable by bridge)
      * @param to Recipient address
      * @param amount Amount to mint
@@ -339,10 +278,6 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         require(amount > 0, "Cannot steal zero amount");
         require(isActiveParticipant[victim], "Can only steal from active participants");
         
-        // Apply demurrage to both thief and victim
-        applyDemurrage(msg.sender);
-        applyDemurrage(victim);
-        
         // Check take cooldown
         require(block.timestamp >= takeCooldownEndTime[msg.sender], "Take cooldown active");
         
@@ -351,7 +286,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         require(victimBalance >= amount, "Victim has insufficient balance");
         
         // Calculate theft fee (same as transfer fee)
-        uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
+        uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / 10000;
         uint256 theftAmount = amount - feeAmount;
         
         // Calculate theft cooldown (amount-scaled, epoch-aware)
@@ -415,7 +350,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         uint256 epochDuration = EPOCH_DURATION;
         
         // Base cost is 5% of amount stolen (cheapest on day 1)
-        uint256 baseCost = amount * 500 / DEMURRAGE_BASIS_POINTS; // 5%
+        uint256 baseCost = amount * 500 / 10000; // 5%
         
         // Calculate how much of the epoch has passed (0 = start, 1 = end)
         uint256 epochProgress = (epochDuration - timeUntilEpochEnd) * 1e18 / epochDuration;

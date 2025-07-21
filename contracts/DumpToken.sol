@@ -33,9 +33,8 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     mapping(address => uint256) public lastDemurrageUpdate;
     mapping(address => uint256) public stakedAmount;
     mapping(address => uint256) public lastTransferTime;
-    mapping(address => uint256) public cooldownEndTime;
-    mapping(address => uint256) public lastTheftTime;
-    mapping(address => uint256) public theftCooldownEndTime;
+    mapping(address => uint256) public giveCooldownEndTime; // for transfers (give/dump)
+    mapping(address => uint256) public takeCooldownEndTime; // for thefts (steal)
     mapping(uint256 => bool) public isEpochFinalized;
     mapping(address => bool) public isActiveParticipant;
     
@@ -161,9 +160,9 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         // Apply demurrage to sender
         applyDemurrage(msg.sender);
         
-        // Check cooldown (skip for owner if no cooldown is set)
-        if (cooldownEndTime[msg.sender] > 0) {
-            require(block.timestamp >= cooldownEndTime[msg.sender], "Transfer cooldown active");
+        // Check give cooldown
+        if (giveCooldownEndTime[msg.sender] > 0) {
+            require(block.timestamp >= giveCooldownEndTime[msg.sender], "Give cooldown active");
         }
         
         // Calculate transfer fee
@@ -174,7 +173,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         uint256 cooldown = computeCooldown(amount);
         
         // Update cooldown
-        cooldownEndTime[msg.sender] = block.timestamp + cooldown;
+        giveCooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Transfer tokens
         _transfer(msg.sender, to, transferAmount);
@@ -344,8 +343,8 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         applyDemurrage(msg.sender);
         applyDemurrage(victim);
         
-        // Check theft cooldown
-        require(block.timestamp >= theftCooldownEndTime[msg.sender], "Theft cooldown active");
+        // Check take cooldown
+        require(block.timestamp >= takeCooldownEndTime[msg.sender], "Take cooldown active");
         
         // Check victim has enough balance
         uint256 victimBalance = balanceOf(victim);
@@ -355,8 +354,10 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         uint256 feeAmount = amount * THEFT_FEE_BASIS_POINTS / DEMURRAGE_BASIS_POINTS;
         uint256 theftAmount = amount - feeAmount;
         
-        // Calculate theft cooldown (amount-scaled like transfers)
+        // Calculate theft cooldown (amount-scaled, epoch-aware)
         uint256 cooldown = computeTheftCooldown(amount);
+        uint256 epochTimeLeft = getEpochTimeRemaining();
+        require(cooldown <= epochTimeLeft, "Cooldown exceeds time left in epoch; theft not allowed");
         
         // Calculate epoch-weighted theft cost (increases dramatically near snapshot)
         uint256 theftCost = calculateTheftCost(amount);
@@ -366,7 +367,7 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
         require(thiefBalance >= theftCost, "Insufficient balance to pay theft cost");
         
         // Update theft cooldown
-        theftCooldownEndTime[msg.sender] = block.timestamp + cooldown;
+        takeCooldownEndTime[msg.sender] = block.timestamp + cooldown;
         
         // Execute the theft
         _transfer(victim, msg.sender, theftAmount);
@@ -385,23 +386,23 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @dev Compute theft cooldown based on amount stolen
+     * @dev Compute theft cooldown based on amount stolen and time left in epoch
      * @param amount Amount being stolen
      * @return cooldown Cooldown duration in seconds
      */
     function computeTheftCooldown(uint256 amount) public view returns (uint256) {
         uint256 tMin = THEFT_COOLDOWN_MIN;
-        uint256 tMax = THEFT_COOLDOWN_MAX;
-        uint256 k = 2; // Quadratic scaling
-        
+        uint256 epochTimeLeft = getEpochTimeRemaining();
         if (amount == 0) return tMin;
-        
+        // Scaled amount: 0 (none) to 1e18 (all supply)
         uint256 scaled = amount * 1e18 / _totalSupply;
-        uint256 cooldown = tMin + (
-            (tMax - tMin) * scaled * scaled / (1e18 * 1e18)
-        );
-        
-        return cooldown > tMax ? tMax : cooldown;
+        // Exponential scaling: cooldown = tMin + (epochTimeLeft) * (scaled^3)
+        // This means stealing a lot late in the epoch can result in a cooldown longer than the epoch
+        // (scaled^3 = scaled * scaled * scaled / 1e36 for 18 decimals)
+        uint256 scaledCubed = scaled * scaled / 1e18;
+        scaledCubed = scaledCubed * scaled / 1e18;
+        uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
+        return cooldown;
     }
     
     /**
@@ -463,10 +464,24 @@ contract DumpToken is ERC20, ReentrancyGuard, Ownable {
      * @return timeRemaining Time remaining on cooldown
      */
     function getTheftCooldownStatus(address user) external view returns (bool isOnCooldown, uint256 timeRemaining) {
-        if (block.timestamp >= theftCooldownEndTime[user]) {
+        if (block.timestamp >= takeCooldownEndTime[user]) {
             return (false, 0);
         } else {
-            return (true, theftCooldownEndTime[user] - block.timestamp);
+            return (true, takeCooldownEndTime[user] - block.timestamp);
+        }
+    }
+
+    /**
+     * @dev Get give cooldown status for an address
+     * @param user Address to check
+     * @return isOnCooldown Whether user is on give cooldown
+     * @return timeRemaining Time remaining on cooldown
+     */
+    function getGiveCooldownStatus(address user) external view returns (bool isOnCooldown, uint256 timeRemaining) {
+        if (block.timestamp >= giveCooldownEndTime[user]) {
+            return (false, 0);
+        } else {
+            return (true, giveCooldownEndTime[user] - block.timestamp);
         }
     }
 }

@@ -11,11 +11,18 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
-# Hardhat
-cache/
-artifacts/
-typechain/
-typechain-types/
+# Anchor/Solana
+target/
+test-ledger/
+.anchor/
+.program_logs/
+
+# Solana CLI
+.config/
+
+# Build artifacts
+.so
+keypairs/
 
 # Coverage directory used by tools like istanbul
 coverage/
@@ -140,11 +147,18 @@ typings/
 ehthumbs.db
 Thumbs.db
 
-# Hardhat specific
+# Hardhat specific (legacy)
 cache/
 artifacts/
 typechain/
 typechain-types/
+
+# Solana/Anchor specific
+target/
+Cargo.lock
+.anchor/
+test-ledger/
+.DS_Store
 
 # Deployment files
 deployments/
@@ -152,3 +166,12 @@ deployments/
 # Test files
 test-results/
 coverage/
+
+# Rust specific
+Cargo.lock
+target/
+**/*.rs.bk
+*.pdb
+
+# Solana CLI
+.config/

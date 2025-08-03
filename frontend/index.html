@@ -4,19 +4,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GLORY/DUMP - The Reverse Wealth Game</title>
+    <title>GLORY/DUMP - The Reverse Wealth Game on Solana</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    <script src="https://unpkg.com/@coral-xyz/anchor@latest/dist/browser.bundle.js"></script>
 </head>
 
 <body>
     <div class="container">
         <header>
             <h1>🎭 GLORY/DUMP</h1>
-            <p class="subtitle">The Reverse Wealth, Self-Draining, PvP Meme Token</p>
+            <p class="subtitle">The Reverse Wealth, Self-Draining, PvP Meme Token on Solana</p>
             <div class="wallet-section">
-                <button id="connectWallet" class="btn btn-primary">Connect Wallet</button>
+                <button id="connectWallet" class="btn btn-primary">Connect Phantom</button>
                 <span id="walletAddress" class="wallet-address"></span>
+                <div id="networkStatus" class="network-status">Solana Devnet</div>
             </div>
         </header>
 
@@ -25,7 +27,7 @@
                 <div class="stat-card">
                     <h3>Your DUMP</h3>
                     <div id="dumpBalance" class="stat-value">0 DUMP</div>
-                    <div id="dumpDecay" class="stat-subtitle">Decays 1% daily</div>
+                    <div id="dumpAverage" class="stat-subtitle">Time-weighted avg: 0</div>
                 </div>
 
                 <div class="stat-card">
@@ -39,6 +41,12 @@
                     <div id="userRank" class="stat-value">-</div>
                     <div class="stat-subtitle">Lower DUMP = Higher Rank</div>
                 </div>
+
+                <div class="stat-card">
+                    <h3>Your Stake</h3>
+                    <div id="stakeAmount" class="stat-value">0 DUMP</div>
+                    <div class="stat-subtitle">Staked for participation</div>
+                </div>
             </div>
 
             <div class="epoch-info">
@@ -46,8 +54,32 @@
                 <div class="epoch-timer">
                     <div id="epochTimeRemaining" class="timer">30 days remaining</div>
                     <div class="epoch-number">Epoch #<span id="currentEpoch">1</span></div>
+                    <div id="epochPhase" class="epoch-phase">Waiting Period</div>
                 </div>
                 <button id="finalizeEpoch" class="btn btn-secondary" disabled>Finalize Epoch</button>
+            </div>
+
+            <div class="participation-section">
+                <h2>🎮 Participation</h2>
+                <div class="participation-interface">
+                    <div class="stake-section">
+                        <div class="input-group">
+                            <label for="stakeAmount">Stake DUMP to Participate:</label>
+                            <input type="number" id="stakeAmountInput" placeholder="1000000" min="1000000" />
+                            <span class="input-hint">Minimum: 1,000,000 DUMP</span>
+                        </div>
+                        <button id="stakeButton" class="btn btn-primary">Stake for Participation</button>
+                        <button id="withdrawStakeButton" class="btn btn-secondary">Withdraw Stake</button>
+                    </div>
+                    
+                    <div class="signup-section">
+                        <div class="join-fee-info">
+                            <div>Join Fee: <span id="currentJoinFee">0.01 SOL</span></div>
+                            <div class="fee-explanation">Fee increases as waiting period progresses</div>
+                        </div>
+                        <button id="signupButton" class="btn btn-success">Sign Up for Next Epoch</button>
+                    </div>
+                </div>
             </div>
 
             <div class="game-actions">
@@ -56,7 +88,7 @@
                     <div class="dump-interface">
                         <div class="input-group">
                             <label for="dumpTarget">Target Address:</label>
-                            <input type="text" id="dumpTarget" placeholder="0x..." />
+                            <input type="text" id="dumpTarget" placeholder="Solana wallet address..." />
                         </div>
                         <div class="input-group">
                             <label for="dumpAmount">Amount to Dump:</label>
@@ -66,8 +98,8 @@
                             </div>
                         </div>
                         <div class="cooldown-info">
-                            <div>Cooldown: <span id="cooldownTime">0s</span></div>
-                            <div>Fee: <span id="transferFee">0</span> DUMP</div>
+                            <div>Give Cooldown: <span id="giveCooldownTime">0s</span></div>
+                            <div>Fee: <span id="transferFee">0.3%</span></div>
                         </div>
                         <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
                     </div>
@@ -78,7 +110,7 @@
                     <div class="theft-interface">
                         <div class="input-group">
                             <label for="theftTarget">Victim Address:</label>
-                            <input type="text" id="theftTarget" placeholder="0x..." />
+                            <input type="text" id="theftTarget" placeholder="Solana wallet address..." />
                         </div>
                         <div class="input-group">
                             <label for="theftAmount">Amount to Steal:</label>
@@ -88,7 +120,7 @@
                             </div>
                         </div>
                         <div class="theft-info">
-                            <div>Cooldown: <span id="theftCooldownTime">0s</span></div>
+                            <div>Take Cooldown: <span id="takeCooldownTime">0s</span></div>
                             <div>Fee: <span id="theftFee">0</span> DUMP</div>
                             <div>Theft Cost: <span id="theftCost">0</span> DUMP</div>
                         </div>

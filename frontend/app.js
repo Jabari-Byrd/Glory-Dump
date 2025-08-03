@@ -1,32 +1,39 @@
-// GLORY/DUMP Frontend Application
+// GLORY/DUMP Solana Frontend Application
 class GloryDumpApp {
     constructor() {
-        this.provider = null;
-        this.signer = null;
-        this.dumpToken = null;
-        this.gloryToken = null;
-        this.feePot = null;
+        this.connection = null;
+        this.wallet = null;
+        this.program = null;
+        this.gameState = null;
+        this.playerState = null;
         this.isConnected = false;
 
-        // Contract addresses (update these after deployment)
-        this.contractAddresses = {
-            dumpToken: '0x...', // Update with deployed address
-            gloryToken: '0x...', // Update with deployed address
-            feePot: '0x...'      // Update with deployed address
-        };
+        // Program ID (update after deployment)
+        this.programId = new solanaWeb3.PublicKey('GDgame1111111111111111111111111111111111111');
+        
+        // Network endpoint
+        this.endpoint = 'https://api.devnet.solana.com'; // Change for mainnet: 'https://api.mainnet-beta.solana.com'
 
         this.init();
     }
 
     async init() {
+        this.connection = new solanaWeb3.Connection(this.endpoint, 'confirmed');
         this.setupEventListeners();
         this.updateUI();
 
-        // Check if wallet is already connected
-        if (typeof window.ethereum !== 'undefined') {
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-            if (accounts.length > 0) {
-                await this.connectWallet();
+        // Check if Phantom wallet is installed and connected
+        if (window.solana && window.solana.isPhantom) {
+            try {
+                const response = await window.solana.connect({ onlyIfTrusted: true });
+                if (response.publicKey) {
+                    this.wallet = window.solana;
+                    this.isConnected = true;
+                    await this.loadProgramData();
+                    this.updateUI();
+                }
+            } catch (err) {
+                console.log('Wallet not auto-connected');
             }
         }
     }
@@ -35,6 +42,20 @@ class GloryDumpApp {
         // Wallet connection
         document.getElementById('connectWallet').addEventListener('click', () => {
             this.connectWallet();
+        });
+
+        // Staking
+        document.getElementById('stakeButton').addEventListener('click', () => {
+            this.stakeForParticipation();
+        });
+
+        document.getElementById('withdrawStakeButton').addEventListener('click', () => {
+            this.withdrawStake();
+        });
+
+        // Epoch signup
+        document.getElementById('signupButton').addEventListener('click', () => {
+            this.signUpForEpoch();
         });
 
         // Dump slider
@@ -48,315 +69,198 @@ class GloryDumpApp {
             this.executeDump();
         });
 
+        // Theft slider
+        const theftSlider = document.getElementById('theftSlider');
+        theftSlider.addEventListener('input', (e) => {
+            this.updateTheftAmount(e.target.value);
+        });
+
+        // Theft button
+        document.getElementById('theftButton').addEventListener('click', () => {
+            this.executeTheft();
+        });
+
         // Finalize epoch
         document.getElementById('finalizeEpoch').addEventListener('click', () => {
             this.finalizeEpoch();
         });
 
-        // Execute buyback
-        document.getElementById('executeBuyback').addEventListener('click', () => {
-            this.executeBuyback();
-        });
-
-        // Theft functionality
-        document.getElementById('theftSlider').addEventListener('input', (e) => {
-            this.updateTheftAmount(e.target.value);
-        });
-
-        document.getElementById('stealButton').addEventListener('click', () => {
-            this.executeTheft();
-        });
-
-        // Bug bounty functionality
-        document.getElementById('submitBugReport').addEventListener('click', () => {
-            this.submitBugReport();
-        });
-
-        document.getElementById('viewBugReports').addEventListener('click', () => {
-            this.loadBugReports();
-        });
-
-        // Wallet account changes
-        if (typeof window.ethereum !== 'undefined') {
-            window.ethereum.on('accountsChanged', (accounts) => {
-                if (accounts.length === 0) {
-                    this.disconnectWallet();
-                } else {
-                    this.connectWallet();
-                }
-            });
-
-            window.ethereum.on('chainChanged', () => {
-                window.location.reload();
-            });
-        }
+        // Update player average
+        setInterval(() => {
+            if (this.isConnected) {
+                this.updatePlayerAverage();
+            }
+        }, 30000); // Update every 30 seconds
     }
 
     async connectWallet() {
-        try {
-            if (typeof window.ethereum === 'undefined') {
-                alert('Please install MetaMask or another Web3 wallet');
-                return;
-            }
-
-            // Request account access
-            const accounts = await window.ethereum.request({
-                method: 'eth_requestAccounts'
-            });
-
-            if (accounts.length === 0) {
-                throw new Error('No accounts found');
-            }
-
-            // Setup provider and signer
-            this.provider = new ethers.providers.Web3Provider(window.ethereum);
-            this.signer = this.provider.getSigner();
-
-            // Initialize contracts
-            await this.initializeContracts();
-
-            this.isConnected = true;
-            this.updateUI();
-            this.loadGameData();
-
-        } catch (error) {
-            console.error('Error connecting wallet:', error);
-            alert('Failed to connect wallet: ' + error.message);
-        }
-    }
-
-    disconnectWallet() {
-        this.provider = null;
-        this.signer = null;
-        this.dumpToken = null;
-        this.gloryToken = null;
-        this.feePot = null;
-        this.isConnected = false;
-        this.updateUI();
-    }
-
-    async initializeContracts() {
-        // Contract ABIs (simplified for demo)
-        const dumpTokenABI = [
-            'function balanceOf(address) view returns (uint256)',
-            'function transfer(address, uint256) returns (bool)',
-            'function getCurrentBalance(address) returns (uint256)',
-            'function getFeePot() view returns (uint256)',
-            'function computeCooldown(uint256) view returns (uint256)',
-            'function cooldownEndTime(address) view returns (uint256)',
-            'function isActiveParticipant(address) view returns (bool)',
-            'function stakeForParticipation(uint256)',
-            'function currentEpoch() view returns (uint256)',
-            'function getEpochTimeRemaining() view returns (uint256)'
-        ];
-
-        const gloryTokenABI = [
-            'function balanceOf(address) view returns (uint256)',
-            'function getUserRank(address) view returns (int256)',
-            'function getLeaderboard() view returns (address[])',
-            'function getUserAverageDumpHeld(address) view returns (uint256)',
-            'function getEpochTimeRemaining() view returns (uint256)',
-            'function currentEpoch() view returns (uint256)',
-            'function finalizeEpoch()'
-        ];
-
-        const feePotABI = [
-            'function totalFeesCollected() view returns (uint256)',
-            'function totalGloryBurned() view returns (uint256)',
-            'function executeBuyback()'
-        ];
-
-        // Initialize contract instances
-        this.dumpToken = new ethers.Contract(
-            this.contractAddresses.dumpToken,
-            dumpTokenABI,
-            this.signer
-        );
-
-        this.gloryToken = new ethers.Contract(
-            this.contractAddresses.gloryToken,
-            gloryTokenABI,
-            this.signer
-        );
-
-        this.feePot = new ethers.Contract(
-            this.contractAddresses.feePot,
-            feePotABI,
-            this.signer
-        );
-    }
-
-    async loadGameData() {
-        if (!this.isConnected) return;
-
-        try {
-            const address = await this.signer.getAddress();
-
-            // Load balances
-            await this.loadBalances(address);
-
-            // Load epoch info
-            await this.loadEpochInfo();
-
-            // Load leaderboard
-            await this.loadLeaderboard();
-
-            // Load fee pot info
-            await this.loadFeePotInfo();
-
-            // Load bug bounty stats
-            await this.loadBugBountyStats();
-
-        } catch (error) {
-            console.error('Error loading game data:', error);
-        }
-    }
-
-    async loadBalances(address) {
-        try {
-            // Get current DUMP balance (with demurrage applied)
-            const dumpBalance = await this.dumpToken.getCurrentBalance(address);
-            const gloryBalance = await this.gloryToken.balanceOf(address);
-            const userRank = await this.gloryToken.getUserRank(address);
-
-            // Update UI
-            document.getElementById('dumpBalance').textContent =
-                this.formatTokenAmount(dumpBalance, 18) + ' DUMP';
-            document.getElementById('gloryBalance').textContent =
-                this.formatTokenAmount(gloryBalance, 18) + ' GLORY';
-
-            if (userRank >= 0) {
-                document.getElementById('userRank').textContent = '#' + (userRank + 1);
-            } else {
-                document.getElementById('userRank').textContent = 'Not Participating';
-            }
-
-        } catch (error) {
-            console.error('Error loading balances:', error);
-        }
-    }
-
-    async loadEpochInfo() {
-        try {
-            const currentEpoch = await this.gloryToken.currentEpoch();
-            const timeRemaining = await this.gloryToken.getEpochTimeRemaining();
-
-            document.getElementById('currentEpoch').textContent = currentEpoch;
-            document.getElementById('epochTimeRemaining').textContent =
-                this.formatTimeRemaining(timeRemaining);
-
-            // Enable/disable finalize button
-            const finalizeButton = document.getElementById('finalizeEpoch');
-            finalizeButton.disabled = timeRemaining > 0;
-
-        } catch (error) {
-            console.error('Error loading epoch info:', error);
-        }
-    }
-
-    async loadLeaderboard() {
-        try {
-            const leaderboard = await this.gloryToken.getLeaderboard();
-            const leaderboardList = document.getElementById('leaderboardList');
-
-            if (leaderboard.length === 0) {
-                leaderboardList.innerHTML = '<div class="loading">No participants yet</div>';
-                return;
-            }
-
-            let html = '';
-            for (let i = 0; i < Math.min(leaderboard.length, 10); i++) {
-                const address = leaderboard[i];
-                const avgDumpHeld = await this.gloryToken.getUserAverageDumpHeld(address);
-
-                html += `
-                    <div class="leaderboard-item">
-                        <span>#${i + 1}</span>
-                        <span>${this.shortenAddress(address)}</span>
-                        <span>${this.formatTokenAmount(avgDumpHeld, 18)} DUMP</span>
-                    </div>
-                `;
-            }
-
-            leaderboardList.innerHTML = html;
-
-        } catch (error) {
-            console.error('Error loading leaderboard:', error);
-            document.getElementById('leaderboardList').innerHTML =
-                '<div class="loading">Error loading leaderboard</div>';
-        }
-    }
-
-    async loadFeePotInfo() {
-        try {
-            const totalFees = await this.feePot.totalFeesCollected();
-            const gloryBurned = await this.feePot.totalGloryBurned();
-
-            document.getElementById('totalFees').textContent =
-                this.formatTokenAmount(totalFees, 18);
-            document.getElementById('gloryBurned').textContent =
-                this.formatTokenAmount(gloryBurned, 18);
-
-        } catch (error) {
-            console.error('Error loading fee pot info:', error);
-        }
-    }
-
-    async loadBugBountyStats() {
-        if (!this.isConnected) {
+        if (!window.solana || !window.solana.isPhantom) {
+            alert('Please install Phantom wallet!');
+            window.open('https://phantom.app/', '_blank');
             return;
         }
 
         try {
-            const bountyReserve = await this.gloryToken.getBugBountyReserve();
-            const reportIds = await this.gloryToken.getAllBugReports();
-
-            document.getElementById('bountyReserve').textContent = this.formatTokenAmount(bountyReserve, 18);
-            document.getElementById('totalReports').textContent = reportIds.length;
-
-        } catch (error) {
-            console.error('Error loading bug bounty stats:', error);
+            const response = await window.solana.connect();
+            this.wallet = window.solana;
+            this.isConnected = true;
+            
+            await this.loadProgramData();
+            this.updateUI();
+            
+            console.log('Connected to wallet:', response.publicKey.toString());
+        } catch (err) {
+            console.error('Failed to connect wallet:', err);
+            alert('Failed to connect wallet');
         }
     }
 
-    updateDumpAmount(percentage) {
+    async loadProgramData() {
         if (!this.isConnected) return;
 
-        // This is a simplified calculation - in reality, you'd get the user's actual balance
-        const maxAmount = 1000; // Placeholder
-        const amount = (maxAmount * percentage) / 100;
-
-        document.getElementById('dumpAmount').textContent =
-            this.formatTokenAmount(ethers.utils.parseEther(amount.toString()), 18);
-
-        // Update cooldown and fee info
-        this.updateTransferInfo(amount);
-    }
-
-    async updateTransferInfo(amount) {
         try {
-            const amountWei = ethers.utils.parseEther(amount.toString());
-            const cooldown = await this.dumpToken.computeCooldown(amountWei);
-            const fee = amountWei.mul(30).div(10000); // 0.3% fee
+            // Load game state
+            const [gameStatePda] = await solanaWeb3.PublicKey.findProgramAddress(
+                [Buffer.from('game_state')],
+                this.programId
+            );
 
-            // Get epoch info for context
-            const timeRemaining = await this.dumpToken.getEpochTimeRemaining();
-            const epochProgress = 30 * 24 * 3600 - timeRemaining; // 30 days in seconds
-            const daysIntoEpoch = Math.floor(epochProgress / (24 * 3600));
-
-            document.getElementById('cooldownTime').textContent =
-                this.formatTimeRemaining(cooldown);
-            document.getElementById('transferFee').textContent =
-                this.formatTokenAmount(fee, 18);
-
-            // Add epoch context
-            const cooldownInfo = document.getElementById('cooldownTime').parentElement;
-            if (daysIntoEpoch > 0) {
-                cooldownInfo.title = `Day ${daysIntoEpoch} of epoch - cooldowns increase over time`;
+            const gameStateInfo = await this.connection.getAccountInfo(gameStatePda);
+            if (gameStateInfo) {
+                this.gameState = gameStatePda;
+                // In a real app, you'd deserialize the account data here
+                console.log('Game state loaded:', gameStatePda.toString());
             }
 
-        } catch (error) {
-            console.error('Error updating transfer info:', error);
+            // Load player state
+            const [playerStatePda] = await solanaWeb3.PublicKey.findProgramAddress(
+                [Buffer.from('player_state'), this.wallet.publicKey.toBuffer()],
+                this.programId
+            );
+
+            const playerStateInfo = await this.connection.getAccountInfo(playerStatePda);
+            if (playerStateInfo) {
+                this.playerState = playerStatePda;
+                console.log('Player state loaded:', playerStatePda.toString());
+            }
+
+            await this.updateBalances();
+            await this.updateEpochInfo();
+        } catch (err) {
+            console.error('Failed to load program data:', err);
+        }
+    }
+
+    async updateBalances() {
+        if (!this.isConnected) return;
+
+        try {
+            // In a real implementation, you would:
+            // 1. Get DUMP token balance from player's associated token account
+            // 2. Get GLORY token balance
+            // 3. Get player state data (stake, cooldowns, etc.)
+            // 4. Get current epoch information
+            
+            // For now, show placeholder data
+            document.getElementById('dumpBalance').textContent = '0 DUMP';
+            document.getElementById('gloryBalance').textContent = '0 GLORY';
+            document.getElementById('stakeAmount').textContent = '0 DUMP';
+            document.getElementById('userRank').textContent = '-';
+            
+            // Update cooldown displays
+            document.getElementById('giveCooldownTime').textContent = '0s';
+            document.getElementById('takeCooldownTime').textContent = '0s';
+            
+        } catch (err) {
+            console.error('Failed to update balances:', err);
+        }
+    }
+
+    async updateEpochInfo() {
+        try {
+            // In a real implementation, fetch from game state account
+            document.getElementById('currentEpoch').textContent = '1';
+            document.getElementById('epochTimeRemaining').textContent = '30 days remaining';
+            document.getElementById('epochPhase').textContent = 'Waiting Period';
+            
+            // Update join fee based on time in waiting period
+            document.getElementById('currentJoinFee').textContent = '0.01 SOL';
+            
+        } catch (err) {
+            console.error('Failed to update epoch info:', err);
+        }
+    }
+
+    async stakeForParticipation() {
+        if (!this.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        const amountInput = document.getElementById('stakeAmountInput');
+        const amount = parseInt(amountInput.value);
+
+        if (!amount || amount < 1000000) {
+            alert('Please enter a valid stake amount (minimum 1,000,000 DUMP)');
+            return;
+        }
+
+        try {
+            // In a real implementation, you would:
+            // 1. Check if player has enough DUMP tokens
+            // 2. Create the stake transaction
+            // 3. Sign and send the transaction
+            // 4. Wait for confirmation and update UI
+            
+            console.log('Staking', amount, 'DUMP tokens for participation');
+            alert('Staking functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Staking failed:', err);
+            alert('Staking failed: ' + err.message);
+        }
+    }
+
+    async withdrawStake() {
+        if (!this.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        try {
+            const confirmed = confirm('Withdraw your staked DUMP tokens? This will remove you from active participation.');
+            if (!confirmed) return;
+
+            // In a real implementation, create and send withdraw transaction
+            console.log('Withdrawing staked DUMP tokens');
+            alert('Stake withdrawal functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Stake withdrawal failed:', err);
+            alert('Withdrawal failed: ' + err.message);
+        }
+    }
+
+    async signUpForEpoch() {
+        if (!this.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        try {
+            // Calculate current join fee based on time in waiting period
+            const joinFee = 0.01; // SOL - this would be calculated dynamically
+            
+            const confirmed = confirm(`Sign up for next epoch for ${joinFee} SOL?`);
+            if (!confirmed) return;
+
+            // In a real implementation, you would create and send the signup transaction
+            console.log('Signing up for next epoch with fee:', joinFee, 'SOL');
+            alert('Epoch signup functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Epoch signup failed:', err);
+            alert('Signup failed: ' + err.message);
         }
     }
 
@@ -367,31 +271,54 @@ class GloryDumpApp {
         }
 
         const target = document.getElementById('dumpTarget').value;
-        const amount = document.getElementById('dumpAmount').textContent.split(' ')[0];
+        const amount = parseInt(document.getElementById('dumpAmount').textContent.replace(/,/g, ''));
 
-        if (!target || !ethers.utils.isAddress(target)) {
-            alert('Please enter a valid target address');
-            return;
-        }
-
-        if (parseFloat(amount) <= 0) {
-            alert('Please select an amount to dump');
+        if (!target || !amount) {
+            alert('Please enter a valid target address and amount');
             return;
         }
 
         try {
-            const amountWei = ethers.utils.parseEther(amount);
-            const tx = await this.dumpToken.transfer(target, amountWei);
+            // Validate Solana address
+            new solanaWeb3.PublicKey(target);
+            
+            console.log('Transferring', amount, 'DUMP to', target);
+            
+            // In a real implementation, create and send transfer transaction
+            alert('DUMP transfer functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Transfer failed:', err);
+            alert('Transfer failed: ' + err.message);
+        }
+    }
 
-            alert('Dump transaction sent! Hash: ' + tx.hash);
-            await tx.wait();
+    async executeTheft() {
+        if (!this.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
 
-            // Reload data
-            await this.loadGameData();
+        const target = document.getElementById('theftTarget').value;
+        const amount = parseInt(document.getElementById('theftAmount').textContent.replace(/,/g, ''));
 
-        } catch (error) {
-            console.error('Error executing dump:', error);
-            alert('Failed to execute dump: ' + error.message);
+        if (!target || !amount) {
+            alert('Please enter a valid target address and amount');
+            return;
+        }
+
+        try {
+            // Validate Solana address
+            new solanaWeb3.PublicKey(target);
+            
+            console.log('Stealing', amount, 'DUMP from', target);
+            
+            // In a real implementation, create and send theft transaction
+            alert('DUMP theft functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Theft failed:', err);
+            alert('Theft failed: ' + err.message);
         }
     }
 
@@ -402,232 +329,69 @@ class GloryDumpApp {
         }
 
         try {
-            const tx = await this.gloryToken.finalizeEpoch();
-            alert('Epoch finalization transaction sent! Hash: ' + tx.hash);
-            await tx.wait();
-
-            // Reload data
-            await this.loadGameData();
-
-        } catch (error) {
-            console.error('Error finalizing epoch:', error);
-            alert('Failed to finalize epoch: ' + error.message);
+            console.log('Finalizing current epoch');
+            
+            // In a real implementation, create and send finalization transaction
+            alert('Epoch finalization functionality will be implemented with the full Anchor setup');
+            
+        } catch (err) {
+            console.error('Epoch finalization failed:', err);
+            alert('Finalization failed: ' + err.message);
         }
     }
 
-    async executeBuyback() {
-        if (!this.isConnected) {
-            alert('Please connect your wallet first');
-            return;
-        }
+    async updatePlayerAverage() {
+        if (!this.isConnected) return;
 
         try {
-            const tx = await this.feePot.executeBuyback();
-            alert('Buyback transaction sent! Hash: ' + tx.hash);
-            await tx.wait();
-
-            // Reload data
-            await this.loadGameData();
-
-        } catch (error) {
-            console.error('Error executing buyback:', error);
-            alert('Failed to execute buyback: ' + error.message);
+            // In a real implementation, call the update_player_average instruction
+            console.log('Updating time-weighted average...');
+        } catch (err) {
+            console.error('Failed to update player average:', err);
         }
     }
 
-    updateTheftAmount(percentage) {
-        const balance = parseFloat(document.getElementById('dumpBalance').textContent.split(' ')[0]);
-        const amount = (balance * percentage / 100).toFixed(2);
-        document.getElementById('theftAmount').textContent = amount + ' DUMP';
-
-        // Update theft info
-        this.updateTheftInfo(amount);
+    updateDumpAmount(sliderValue) {
+        // Convert slider value to actual DUMP amount
+        const maxDump = 1000000; // This would come from player's actual balance
+        const amount = Math.floor((sliderValue / 100) * maxDump);
+        document.getElementById('dumpAmount').textContent = amount.toLocaleString();
+        
+        // Update fee display (0.3%)
+        const fee = Math.floor(amount * 0.003);
+        document.getElementById('transferFee').textContent = `${fee.toLocaleString()} DUMP`;
     }
 
-    async updateTheftInfo(amount) {
-        try {
-            const victim = document.getElementById('theftTarget').value;
-            if (!victim || !ethers.utils.isAddress(victim)) {
-                return;
-            }
-
-            const amountWei = ethers.utils.parseEther(amount.toString());
-            const cooldown = await this.dumpToken.computeTheftCooldown(amountWei);
-            const fee = amountWei.mul(30).div(10000); // 0.3% fee
-            const theftCost = await this.dumpToken.calculateTheftCost(amountWei);
-
-            // Get epoch info for context
-            const timeRemaining = await this.dumpToken.getEpochTimeRemaining();
-            const epochProgress = 30 * 24 * 3600 - timeRemaining; // 30 days in seconds
-            const daysIntoEpoch = Math.floor(epochProgress / (24 * 3600));
-            const hoursRemaining = Math.floor(timeRemaining / 3600);
-
-            document.getElementById('theftCooldownTime').textContent =
-                this.formatTimeRemaining(cooldown);
-            document.getElementById('theftFee').textContent =
-                this.formatTokenAmount(fee, 18);
-            document.getElementById('theftCost').textContent =
-                this.formatTokenAmount(theftCost, 18);
-
-            // Add epoch context and cost phase info
-            const theftInfo = document.getElementById('theftCost').parentElement;
-            let phaseInfo = `Day ${daysIntoEpoch} of epoch`;
-
-            if (timeRemaining < 3600) { // Less than 1 hour
-                phaseInfo += ` - EXPONENTIAL costs (${hoursRemaining}h remaining) - MEME TERRITORY!`;
-            } else if (timeRemaining < 86400) { // Less than 1 day
-                phaseInfo += ` - QUADRATIC costs (${hoursRemaining}h remaining) - HIGH RISK!`;
-            } else if (timeRemaining < 7 * 86400) { // Less than 1 week
-                phaseInfo += ` - LINEAR costs (${daysIntoEpoch} days in) - MODERATE RISK`;
-            } else {
-                phaseInfo += ` - GRADUAL costs (${daysIntoEpoch} days in) - LOW RISK`;
-            }
-
-            theftInfo.title = phaseInfo;
-
-        } catch (error) {
-            console.error('Error updating theft info:', error);
-        }
-    }
-
-    async executeTheft() {
-        if (!this.isConnected) {
-            alert('Please connect your wallet first');
-            return;
-        }
-
-        const victim = document.getElementById('theftTarget').value;
-        const amount = document.getElementById('theftAmount').textContent.split(' ')[0];
-
-        if (!victim || !ethers.utils.isAddress(victim)) {
-            alert('Please enter a valid victim address');
-            return;
-        }
-
-        if (parseFloat(amount) <= 0) {
-            alert('Please select an amount to steal');
-            return;
-        }
-
-        try {
-            const amountWei = ethers.utils.parseEther(amount);
-            const tx = await this.dumpToken.stealDump(victim, amountWei);
-
-            alert('Theft transaction sent! Hash: ' + tx.hash);
-            await tx.wait();
-
-            // Reload data
-            await this.loadGameData();
-
-        } catch (error) {
-            console.error('Error executing theft:', error);
-            alert('Failed to execute theft: ' + error.message);
-        }
-    }
-
-    async submitBugReport() {
-        if (!this.isConnected) {
-            alert('Please connect your wallet first');
-            return;
-        }
-
-        const severity = document.getElementById('bugSeverity').value;
-        const description = document.getElementById('bugDescription').value.trim();
-        const proofOfConcept = document.getElementById('bugProofOfConcept').value.trim();
-
-        if (!description) {
-            alert('Please provide a bug description');
-            return;
-        }
-
-        try {
-            const tx = await this.gloryToken.submitBugReport(severity, description, proofOfConcept);
-            await tx.wait();
-
-            alert('Bug report submitted successfully! The team will review it.');
-            this.loadBugReports();
-
-        } catch (error) {
-            console.error('Bug report submission failed:', error);
-            alert('Bug report submission failed: ' + error.message);
-        }
-    }
-
-    async loadBugReports() {
-        if (!this.isConnected) {
-            return;
-        }
-
-        try {
-            const reportIds = await this.gloryToken.getAllBugReports();
-            const bugReportsContainer = document.getElementById('bugReportsContainer');
-            bugReportsContainer.innerHTML = '';
-
-            for (const reportId of reportIds) {
-                const report = await this.gloryToken.getBugReport(reportId);
-
-                const reportElement = document.createElement('div');
-                reportElement.className = 'bug-report';
-                reportElement.innerHTML = `
-                    <div class="bug-report-header">
-                        <span class="severity-${report.severity.toLowerCase()}">${report.severity}</span>
-                        <span class="timestamp">${new Date(report.timestamp * 1000).toLocaleString()}</span>
-                    </div>
-                    <div class="bug-report-body">
-                        <p><strong>Reporter:</strong> ${this.shortenAddress(report.reporter)}</p>
-                        <p><strong>Description:</strong> ${report.description}</p>
-                        ${report.proofOfConcept ? `<p><strong>Proof of Concept:</strong> ${report.proofOfConcept}</p>` : ''}
-                        <p><strong>Status:</strong> ${report.verified ? (report.paid ? 'Paid' : 'Verified') : 'Pending'}</p>
-                        ${report.bountyAmount > 0 ? `<p><strong>Bounty:</strong> ${this.formatTokenAmount(report.bountyAmount, 18)} GLORY</p>` : ''}
-                    </div>
-                `;
-
-                bugReportsContainer.appendChild(reportElement);
-            }
-
-        } catch (error) {
-            console.error('Failed to load bug reports:', error);
-        }
+    updateTheftAmount(sliderValue) {
+        // Convert slider value to actual DUMP amount
+        const maxDump = 1000000; // This would come from target's actual balance
+        const amount = Math.floor((sliderValue / 100) * maxDump);
+        document.getElementById('theftAmount').textContent = amount.toLocaleString();
     }
 
     updateUI() {
         const connectButton = document.getElementById('connectWallet');
         const walletAddress = document.getElementById('walletAddress');
 
-        if (this.isConnected) {
+        if (this.isConnected && this.wallet) {
             connectButton.textContent = 'Connected';
             connectButton.disabled = true;
-            this.signer.getAddress().then(address => {
-                walletAddress.textContent = this.shortenAddress(address);
-            });
+            connectButton.classList.add('connected');
+            walletAddress.textContent = this.wallet.publicKey.toString().slice(0, 8) + '...';
         } else {
-            connectButton.textContent = 'Connect Wallet';
+            connectButton.textContent = 'Connect Phantom';
             connectButton.disabled = false;
+            connectButton.classList.remove('connected');
             walletAddress.textContent = '';
         }
     }
 
-    // Utility functions
-    formatTokenAmount(amount, decimals) {
-        return ethers.utils.formatUnits(amount, decimals);
-    }
-
-    formatTimeRemaining(seconds) {
-        if (seconds === 0) return '0s';
-
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-
-        if (days > 0) return `${days}d ${hours}h`;
-        if (hours > 0) return `${hours}h ${minutes}m`;
-        if (minutes > 0) return `${minutes}m ${secs}s`;
-        return `${secs}s`;
-    }
-
-    shortenAddress(address) {
-        return address.substring(0, 6) + '...' + address.substring(address.length - 4);
+    // Helper method to format large numbers
+    formatNumber(num) {
+        if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+        if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+        if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+        return num.toString();
     }
 }
 

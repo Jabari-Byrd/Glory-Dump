@@ -1,28 +1,44 @@
 {
-  "name": "glory-dump-token",
+  "name": "glory-dump-solana",
   "version": "1.0.0",
-  "description": "GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token",
+  "description": "GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token on Solana",
   "main": "index.js",
   "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploy.js --network base",
-    "deploy:testnet": "hardhat run scripts/deploy.js --network base-testnet"
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "test": "anchor test",
+    "test:basic": "node test-basic.js",
+    "test:logic": "npm run test:basic",
+    "build": "anchor build",
+    "deploy": "anchor deploy",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "deploy:mainnet": "anchor deploy --provider.cluster mainnet",
+    "localnet": "solana-test-validator",
+    "clean": "anchor clean",
+    "initialize": "node scripts/initialize.js",
+    "deploy:full": "npm run deploy && npm run initialize"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0",
-    "@uniswap/v2-core": "^1.0.1",
-    "@uniswap/v2-periphery": "^1.1.0-beta.0"
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/web3.js": "^1.95.2",
+    "@solana/spl-token": "^0.4.8",
+    "@project-serum/anchor": "^0.25.0"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "chai": "^4.3.10",
-    "ethers": "^6.8.0",
-    "hardhat": "^2.19.0"
+    "@types/bn.js": "^5.1.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^9.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^9.0.3",
+    "prettier": "^2.6.2",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^4.3.5"
   },
   "keywords": [
-    "ethereum",
-    "solidity",
+    "solana",
+    "anchor",
+    "rust",
+    "spl-token",
     "defi",
     "meme-token",
     "pvp",
@@ -33,13 +49,11 @@
     "tokenomics",
     "smart-contracts",
     "web3",
-    "nft",
     "gaming",
     "competitive",
     "reverse-economics",
-    "demurrage",
-    "base-network",
-    "layer2"
+    "low-fees",
+    "fast-transactions"
   ],
   "author": "Prime Anomaly",
   "license": "MIT"

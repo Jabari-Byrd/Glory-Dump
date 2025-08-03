@@ -47,6 +47,25 @@ h1 {
     justify-content: center;
     align-items: center;
     gap: 15px;
+    flex-wrap: wrap;
+}
+
+.network-status {
+    background: rgba(0, 255, 157, 0.2);
+    color: #00ff9d;
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    border: 1px solid #00ff9d;
+}
+
+.btn.connected {
+    background: linear-gradient(45deg, #00ff9d, #00d4aa);
+    color: #000;
+}
+
+.btn.connected:hover {
+    background: linear-gradient(45deg, #00d4aa, #00b894);
 }
 
 .wallet-address {
@@ -56,6 +75,58 @@ h1 {
     color: #fff;
     font-family: monospace;
     font-size: 0.9rem;
+}
+
+/* Participation Section */
+.participation-section {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    padding: 25px;
+    margin-bottom: 30px;
+    backdrop-filter: blur(10px);
+}
+
+.participation-interface {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.stake-section, .signup-section {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 20px;
+    border-radius: 10px;
+}
+
+.join-fee-info {
+    margin-bottom: 15px;
+    color: #fff;
+    text-align: center;
+}
+
+.fee-explanation {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    margin-top: 5px;
+}
+
+.input-hint {
+    font-size: 0.8rem;
+    color: #ccc;
+    margin-left: 10px;
+}
+
+.epoch-phase {
+    color: #00ff9d;
+    font-size: 0.9rem;
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    .participation-interface {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
 }
 
 /* Buttons */

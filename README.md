@@ -1,6 +1,6 @@
-# GLORY/DUMP: The Reverse Wealth, PvP Meme Token
+# GLORY/DUMP: The Reverse Wealth, PvP Meme Token on Solana
 
-> **"How Not to Do Money" Edition** - A token that hates being held, a leaderboard of the chronically unwealthy, a reward system for staying poor.
+> **"How Not to Do Money" Edition** - A token that hates being held, a leaderboard of the chronically unwealthy, a reward system for staying poor. Now with **ultra-low fees and lightning-fast transactions** on Solana!
 
 ## 🎯 Concept
 
@@ -10,22 +10,30 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 - **Periodic leaderboards award GLORY to those who held the least DUMP (on average!)**
 - **It's PvP: you can sabotage others by force-feeding them DUMP, but everyone can grief back**
 - **All tokenomics are hard-coded—no governance votes, no DAOs, no admin keys**
+- **Built on Solana for virtually free transactions and instant settlement**
 
 ## 🏗️ Architecture
 
-### Core Contracts
+### Core Programs
 
-1. **`DumpToken.sol`** - The main token with PvP mechanics and epoch resets
-2. **`GloryToken.sol`** - Reward token for epoch winners
-3. **`FeePot.sol`** - Handles fee collection and buyback mechanics
-4. **`BridgeGatekeeper.sol`** - Enforces cross-chain transfer rules
+1. **`glory-dump-game`** - Main Anchor program containing all game logic
+   - DUMP token mechanics with PvP features and epoch resets
+   - GLORY token rewards for epoch winners
+   - Fee collection and management
+   - Bug bounty system integration
 
 ### Key Features
+
+#### ⚡ Solana Advantages
+- **Ultra-low fees**: Transactions cost fractions of a penny instead of dollars
+- **Instant settlement**: No waiting for block confirmations
+- **High throughput**: Handle thousands of DUMP transfers and thefts per second
+- **Built-in SPL token support**: Native token functionality without custom implementations
 
 #### 🕐 Epoch System & Waiting Period
 - **30-day epochs**: Fixed periods for competition
 - **7-day waiting period**: After each epoch, a 7-day "lobby" lets new players sign up for the next round
-- **Sign-up fee**: The later you join during the waiting period, the higher the fee (from 0.01 ETH up to 1 ETH)
+- **Sign-up fee**: The later you join during the waiting period, the higher the fee (from 0.01 SOL up to 1 SOL)
 - **Inactive participants expire**: Only those who sign up for the next epoch are included
 
 #### 🎲 Random DUMP Assignment
@@ -35,7 +43,7 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 
 #### 🦹‍♂️ Theft & Transfer System
 - **Steal DUMP from others**: Force tokens from any active participant
-- **0.3% fee**: Both transfers and thefts incur a 0.3% fee
+- **0.3% fee**: Both transfers and thefts incur a 0.3% fee (collected in DUMP)
 - **Amount-scaled cooldowns**: The more you dump or steal, the longer you must wait before acting again
 - **Epoch-aware cooldowns**: Big moves late in the epoch can lock you out for the rest of the game
 - **Action-specific cooldowns**: Stealing and giving have separate cooldowns—chain your chaos!
@@ -46,53 +54,68 @@ GLORY/DUMP flips the entire idea of a "wealth" token upside down:
 - **GLORY rewards**: At epoch end, GLORY is distributed to those with the lowest average DUMP
 - **Bonus Epochs**: Special epochs with extra GLORY rewards, triggered by rare on-chain events
 
-#### 💰 Fee & Buyback System
-- **0.3% transfer fee**: Collected in DUMP
-- **On-chain oracle**: Uses Uniswap V2 TWAP for price feeds
-- **Automated buyback**: Converts fees to GLORY and burns it
+#### 💰 Fee & Reward System
+- **0.3% transfer fee**: Collected in DUMP tokens
+- **On-chain oracle**: Uses Solana slot hashes for on-chain randomness
+- **Automated GLORY**: Rewards distributed automatically via program logic
 
-#### 🌉 Bridge Security
-- **Official Base bridge only**: One canonical bridge
-- **Gatekeeper enforcement**: All transfers must pass validation
-- **Cooldown enforcement**: Prevents rapid cross-chain attacks
+#### 🌉 Cross-Chain Future
+- **Planned feature**: Cross-chain DUMP transfers will be implemented later
+- **Security first**: Multi-signature validation planned
+- **Rate limiting**: Transfer limits to prevent abuse
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 18+
-- npm or yarn
-- Hardhat
+- Rust 1.70.0+
+- Solana CLI 1.18.17+
+- Anchor Framework 0.30.1+
 
 ### Installation
 ```bash
 npm install
 ```
 
-### Compile Contracts
+### Compile Program
 ```bash
-npm run compile
+anchor build
 ```
 
 ### Run Tests
 ```bash
-npm test
+anchor test
 ```
 
-### Deploy to Base Testnet
+### Deploy to Solana Devnet
 ```bash
-# Set your private key
-export PRIVATE_KEY=your_private_key_here
+# Set your wallet and cluster
+solana config set --url devnet
+solana-keygen new  # if you don't have a keypair
+
+# Airdrop SOL for testing
+solana airdrop 2
 
 # Deploy
-npm run deploy:testnet
+anchor deploy --provider.cluster devnet
 ```
 
 ## 🎮 How to Play
 
 ### 1. Join the Game (During Waiting Period)
-```solidity
-// Sign up for the next epoch (paying the join fee)
-dumpToken.signupForNextEpoch{value: fee}();
+```typescript
+// Sign up for the next epoch (paying the join fee in SOL)
+await program.methods
+  .signUpForEpoch(new anchor.BN(joinFee))
+  .accounts({
+    player: wallet.publicKey,
+    gameState: gameStatePda,
+    epochState: epochStatePda,
+    playerState: playerStatePda,
+    treasury: treasuryPda,
+    systemProgram: SystemProgram.programId,
+  })
+  .rpc();
 ```
 
 ### 2. The Objective
@@ -102,30 +125,61 @@ dumpToken.signupForNextEpoch{value: fee}();
 - **Win GLORY rewards** at epoch end
 
 ### 3. Game Mechanics
-```solidity
+```typescript
 // Transfer DUMP (with cooldown and fees)
-dumpToken.transfer(target, amount);
+await program.methods
+  .transferDump(new anchor.BN(amount))
+  .accounts({
+    from: wallet.publicKey,
+    to: targetPlayer,
+    fromPlayerState: fromPlayerStatePda,
+    toPlayerState: toPlayerStatePda,
+    // ... other required accounts
+  })
+  .rpc();
 
 // Steal DUMP from others (with cooldown, fees, and costs)
-dumpToken.stealDump(victim, amount);
+await program.methods
+  .stealDump(new anchor.BN(amount))
+  .accounts({
+    thief: wallet.publicKey,
+    victim: victimPlayer,
+    thiefPlayerState: thiefPlayerStatePda,
+    victimPlayerState: victimPlayerStatePda,
+    // ... other required accounts
+  })
+  .rpc();
 
-// Check your average DUMP
-dumpToken.getAverageDump(yourAddress);
-
-// Check your rank (via GloryToken)
-int256 rank = gloryToken.getUserRank(yourAddress);
-
-// View leaderboard
-address[] memory leaders = gloryToken.getLeaderboard();
+// Update your time-weighted average
+await program.methods
+  .updatePlayerAverage()
+  .accounts({
+    player: wallet.publicKey,
+    playerState: playerStatePda,
+    gameState: gameStatePda,
+    clock: SYSVAR_CLOCK_PUBKEY,
+  })
+  .rpc();
 ```
 
 ### 4. Epoch Finalization & Reset
-```solidity
+```typescript
 // Anyone can finalize epoch after 30 days
-dumpToken.finalizeEpoch();
+await program.methods
+  .finalizeEpoch()
+  .accounts({
+    // Required accounts for epoch finalization
+  })
+  .rpc();
+
 // 7-day waiting period begins; sign up for next round!
-// After waiting period, anyone can start the next epoch:
-dumpToken.startNextEpoch();
+// After waiting period, admin can start the next epoch
+await program.methods
+  .startEpoch()
+  .accounts({
+    // Required accounts for epoch start
+  })
+  .rpc();
 ```
 
 ## 📊 Tokenomics
@@ -142,38 +196,43 @@ dumpToken.startNextEpoch();
 - **Epoch Rewards**: 10,000 GLORY per epoch
 - **Distribution**: Top 5% of participants
 
-### Fee Pot
-- **Source**: 0.3% of all DUMP transfers
-- **Use**: Buyback GLORY from DEX
-- **Burn**: All bought GLORY is burned
-- **Oracle**: Uniswap V2 TWAP
+### Fee Collection
+- **Source**: 0.3% of all DUMP transfers and thefts
+- **Collection**: Automatic via program instruction
+- **Storage**: Program-controlled fee vault account
+- **No DEX integration**: Pure on-chain fee collection
 
 ## 🔧 Technical Details
 
 ### Random DUMP Assignment
-```solidity
-// At epoch start, each participant gets:
-uint256 rand = uint256(keccak256(abi.encodePacked(blockhash(block.number-1), user, i, block.timestamp)));
-uint256 amount = (rand % MAX_DUMP_PER_PLAYER) + 1 * 10**18;
+```rust
+// At epoch start, each participant gets random DUMP using on-chain randomness
+let clock = Clock::get()?;
+let slot = clock.slot;
+let participant_seed = &[participant.key().as_ref(), &slot.to_le_bytes()];
+let random_value = solana_program::hash::hash(participant_seed).to_bytes();
+let amount = (u64::from_le_bytes([random_value[0], random_value[1], random_value[2], random_value[3], 0, 0, 0, 0]) % MAX_DUMP_ASSIGNMENT) + MIN_DUMP_ASSIGNMENT;
 ```
 
 ### Average DUMP Calculation
-```solidity
-// On every balance change:
-cumulativeDumpTime += lastBalance * (now - lastUpdateTime);
-lastUpdateTime = now;
-lastBalance = balanceOf(user);
+```rust
+// On every balance change (Rust implementation in tracking.rs):
+player_state.cumulative_dump_time += player_state.last_balance.checked_mul(time_delta)?;
+player_state.last_update_time = current_time;
+player_state.last_balance = new_balance;
 // At epoch end:
-average = cumulativeDumpTime / (now - epochStartTime);
+// average = cumulative_dump_time / epoch_duration
 ```
 
 ### Cooldown Formula
-```solidity
-// Amount-scaled cooldown, epoch-aware
-uint256 scaled = amount * 1e18 / _totalSupply;
-uint256 scaledCubed = scaled * scaled / 1e18;
-scaledCubed = scaledCubed * scaled / 1e18;
-uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
+```rust
+// Amount-scaled cooldown, epoch-aware (simplified)
+let transfer_amount_ratio = transfer_amount.checked_div(total_supply)?;
+let cooldown_factor = transfer_amount_ratio.checked_mul(1000)?; // Scale factor
+let base_cooldown = if is_theft { THEFT_COOLDOWN_MIN } else { TRANSFER_COOLDOWN_MIN };
+let max_cooldown = if is_theft { THEFT_COOLDOWN_MAX } else { TRANSFER_COOLDOWN_MAX };
+let calculated_cooldown = base_cooldown + cooldown_factor;
+let final_cooldown = std::cmp::min(calculated_cooldown, max_cooldown);
 ```
 
 ## 🛡️ Security Features
@@ -183,17 +242,15 @@ uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
 - **Sybil resistance**: High join fee for late joiners, average-based ranking
 - **Circuit breakers**: Emergency pause functions
 
-### Bridge Security
-- **Single canonical bridge**: Official Base bridge only
-- **Gatekeeper validation**: All transfers checked
-- **Rate limiting**: Per-address and global limits
-- **Emergency pause**: Can halt bridge operations
+### Bridge Security (Future Feature)
+- **Cross-chain support**: Planned for future implementation
+- **Rate limiting**: Will include per-address limits
+- **Security validation**: Multi-signature requirements planned
 
-### Oracle Security
-- **On-chain TWAP**: No external dependencies
-- **Liquidity checks**: Minimum pool liquidity required
-- **Price movement limits**: Max 50% price change allowed
-- **Fallback mechanisms**: Graceful degradation
+### Oracle Security (Future Implementation)
+- **On-chain randomness**: Uses Solana slot hashes for randomness
+- **No external oracles**: Self-contained randomness generation
+- **Deterministic**: Reproducible results for transparency
 
 ## 🚨 Important Notes
 
@@ -203,11 +260,11 @@ uint256 cooldown = tMin + (epochTimeLeft * scaledCubed / 1e18);
 - **High volatility**: Expect wild swings in DUMP balances
 - **Complex mechanics**: May be difficult to understand
 
-### 🔒 No Admin Controls
-- **Immutable contracts**: No upgrades after deployment
-- **No governance**: All parameters hard-coded
-- **No admin keys**: Fully decentralized
-- **Community-driven**: Success depends on adoption
+### 🔒 Program Security
+- **Immutable program**: No upgrades after deployment to mainnet
+- **Admin controls**: Limited to epoch management and emergency pause
+- **Open source**: All code publicly auditable
+- **Bug bounty**: On-chain reward system for finding vulnerabilities
 
 ### 💸 Zero Budget Design
 - **No paid audits**: Open source + bug bounty

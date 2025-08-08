@@ -94,11 +94,12 @@ pub mod glory_dump_game {
     /// Submit a bug report for bounty consideration
     pub fn submit_bug_report(
         ctx: Context<SubmitBugReport>,
+        report_id: [u8; 32],
         description: String,
         proof_of_concept: String,
         severity: BugSeverity,
     ) -> Result<()> {
-        instructions::bug_bounty::submit_report_handler(ctx, description, proof_of_concept, severity)
+        instructions::bug_bounty::submit_report_handler(ctx, report_id, description, proof_of_concept, severity)
     }
 
     /// Verify and pay bug bounty (admin only)
@@ -108,6 +109,23 @@ pub mod glory_dump_game {
         is_valid: bool,
     ) -> Result<()> {
         instructions::bug_bounty::verify_report_handler(ctx, report_id, is_valid)
+    }
+
+    /// Set Merkle root for finalized epoch rewards (admin only)
+    pub fn set_rewards_root(
+        ctx: Context<SetRewardsRoot>,
+        merkle_root: [u8; 32],
+    ) -> Result<()> {
+        instructions::claims::set_rewards_root_handler(ctx, merkle_root)
+    }
+
+    /// Claim GLORY rewards for an epoch using a Merkle proof
+    pub fn claim_rewards(
+        ctx: Context<ClaimRewards>,
+        amount: u64,
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        instructions::claims::claim_rewards_handler(ctx, amount, proof)
     }
 
     /// Emergency pause (admin only)

@@ -17,6 +17,7 @@ pub struct GameState {
     pub total_participants: u64,
     pub total_fees_collected: u64,
     pub total_glory_distributed: u64,
+    pub total_glory_minted: u64, // supply tracker
     pub bump: u8,
 }
 
@@ -35,6 +36,7 @@ impl GameState {
         8 + // total_participants
         8 + // total_fees_collected
         8 + // total_glory_distributed
+    8 + // total_glory_minted
         1; // bump
 }
 
@@ -55,6 +57,9 @@ pub struct EpochState {
     pub highest_volume_player: Option<Pubkey>,
     pub is_bonus_epoch: bool,
     pub bonus_multiplier: u64,
+    // Merkle-based rewards claim
+    pub merkle_root: [u8; 32],
+    pub merkle_root_set: bool,
 }
 
 impl EpochState {
@@ -72,7 +77,9 @@ impl EpochState {
         8 + // total_thefts
         1 + 32 + // highest_volume_player (option + pubkey)
         1 + // is_bonus_epoch
-        8; // bonus_multiplier
+    8 + // bonus_multiplier
+    32 + // merkle_root
+    1; // merkle_root_set
 }
 
 /// Individual player state and statistics
@@ -154,6 +161,21 @@ impl PlayerState {
         self.last_update_time = current_time;
         Ok(())
     }
+}
+
+/// Tracks if a player has claimed rewards for an epoch
+#[account]
+pub struct ClaimStatus {
+    pub epoch_number: u64,
+    pub player: Pubkey,
+    pub claimed: bool,
+}
+
+impl ClaimStatus {
+    pub const LEN: usize = 8 + // discriminator
+        8 + // epoch_number
+        32 + // player
+        1; // claimed
 }
 
 /// Bug report for bounty system

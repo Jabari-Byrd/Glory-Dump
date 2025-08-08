@@ -52,10 +52,13 @@ pub struct DistributeRewards<'info> {
 
 pub fn distribute_rewards_handler(ctx: Context<DistributeRewards>, tier: RewardTier) -> Result<()> {
     let epoch_state = &mut ctx.accounts.epoch_state;
-    let game_state = &ctx.accounts.game_state;
+    let game_state = &mut ctx.accounts.game_state;
 
     // Check if epoch is finalized
     require!(epoch_state.is_finalized, GameError::EpochNotFinalized);
+
+    // Only Winner tier is distributed directly; others must use Merkle claims path
+    require!(matches!(tier, RewardTier::Winner), GameError::RewardTierMismatch);
 
     // Check if rewards for this tier haven't been distributed yet
     let tier_index = match tier {
@@ -72,11 +75,28 @@ pub fn distribute_rewards_handler(ctx: Context<DistributeRewards>, tier: RewardT
     let reward_amount = (base_reward * tier_percentage) / 10000;
 
     // Apply bonus multiplier if it's a bonus epoch
+    // Basic eligibility checks (non-winner tiers should use Merkle-based claim via claims.rs)
+    match tier {
+        RewardTier::Winner => {
+            // Ensure provided winner matches recorded winner
+            require!(epoch_state.winner.is_some(), GameError::NotEligibleForRewards);
+            require!(epoch_state.winner.unwrap() == ctx.accounts.winner.key(), GameError::NotEligibleForRewards);
+        }
+        // Future: Provide Merkle/proof-based eligibility for tiers with multiple winners
+        _ => {}
+    }
+
     let final_reward = if epoch_state.is_bonus_epoch {
         (reward_amount * epoch_state.bonus_multiplier) / 100
     } else {
         reward_amount
     };
+
+    // Enforce GLORY supply cap
+    require!(
+        game_state.total_glory_minted.saturating_add(final_reward) <= GLORY_SUPPLY_CAP,
+        GameError::InvalidAmount
+    );
 
     // Mint GLORY tokens to winner
     let game_state_key = game_state.key();
@@ -101,6 +121,7 @@ pub fn distribute_rewards_handler(ctx: Context<DistributeRewards>, tier: RewardT
     epoch_state.rewards_distributed[tier_index] = true;
     epoch_state.total_glory_rewards += final_reward;
     ctx.accounts.winner_state.total_glory_earned += final_reward;
+    game_state.total_glory_minted = game_state.total_glory_minted.saturating_add(final_reward);
 
     msg!("Distributed {} GLORY tokens to {:?} tier winner: {}",
          final_reward,

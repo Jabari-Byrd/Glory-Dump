@@ -6,6 +6,7 @@ pub mod rewards;
 pub mod tracking;
 pub mod bug_bounty;
 pub mod admin;
+pub mod claims;
 
 pub use initialize_game::*;
 pub use epoch::*;
@@ -15,3 +16,4 @@ pub use rewards::*;
 pub use tracking::*;
 pub use bug_bounty::*;
 pub use admin::*;
+pub use claims::*;

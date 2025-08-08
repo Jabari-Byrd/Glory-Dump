@@ -191,16 +191,16 @@ await program.methods
 - **Random assignment**: Each epoch, all active players get a random DUMP amount
 
 ### GLORY Token
-- **Initial Supply**: 1,000,000 GLORY
-- **Bug Bounty**: 5% (50,000 GLORY)
-- **Epoch Rewards**: 10,000 GLORY per epoch
-- **Distribution**: Top 5% of participants
+- **Supply Cap**: 1,000,000 GLORY (capped on-chain; program enforces mint cap)
+- **Bug Bounty**: Fixed-tier bounties; total mints respect cap
+- **Epoch Rewards**: Distributed per epoch with tier split: 40% Winner, 35% Top Tier, 20% Middle Tier, 5% Bottom Tier
+- **Distribution Mechanism**: Winner direct mint; broader tiers claimed permissionlessly via on-chain Merkle proof under a per-epoch `merkle_root` with one-claim-per-epoch enforcement
 
 ### Fee Collection
-- **Source**: 0.3% of all DUMP transfers and thefts
+- **Source**: 0.3% of all DUMP transfers
 - **Collection**: Automatic via program instruction
-- **Storage**: Program-controlled fee vault account
-- **No DEX integration**: Pure on-chain fee collection
+- **Storage**: Program-controlled fee vault account (DUMP) and treasury PDA (SOL join fees)
+- **Note**: Theft uses secure delegated transfers; ensure you staked to approve the game as delegate
 
 ## 🔧 Technical Details
 
@@ -261,10 +261,10 @@ let final_cooldown = std::cmp::min(calculated_cooldown, max_cooldown);
 - **Complex mechanics**: May be difficult to understand
 
 ### 🔒 Program Security
-- **Immutable program**: No upgrades after deployment to mainnet
-- **Admin controls**: Limited to epoch management and emergency pause
+- **Immutable program**: Recommend deploying with upgrade authority removed for mainnet
+- **Admin controls**: Limited to epoch management and emergency pause; rewards are capped and single-use per tier; join fees routed to treasury PDA
 - **Open source**: All code publicly auditable
-- **Bug bounty**: On-chain reward system for finding vulnerabilities
+- **Bug bounty**: On-chain reward system for finding vulnerabilities with capped supply enforcement
 
 ### 💸 Zero Budget Design
 - **No paid audits**: Open source + bug bounty

@@ -5,13 +5,13 @@ use crate::constants::*;
 use crate::errors::*;
 
 #[derive(Accounts)]
-#[instruction(description: String, proof_of_concept: String, severity: BugSeverity)]
+#[instruction(report_id: [u8; 32], description: String, proof_of_concept: String, severity: BugSeverity)]
 pub struct SubmitBugReport<'info> {
     #[account(
         init,
         payer = reporter,
         space = BugReport::MAX_LEN,
-        seeds = [BUG_REPORT_SEED, reporter.key().as_ref()],
+    seeds = [BUG_REPORT_SEED, &report_id],
         bump
     )]
     pub bug_report: Account<'info, BugReport>,
@@ -73,27 +73,13 @@ pub struct VerifyBugReport<'info> {
 
 pub fn submit_report_handler(
     ctx: Context<SubmitBugReport>,
+    report_id: [u8; 32],
     description: String,
     proof_of_concept: String,
     severity: BugSeverity,
 ) -> Result<()> {
     let bug_report = &mut ctx.accounts.bug_report;
     let clock = Clock::get()?;
-
-    // Generate report ID from reporter + timestamp
-    let report_id = {
-        let mut id = [0u8; 32];
-        let reporter_bytes = ctx.accounts.reporter.key().to_bytes();
-        let timestamp_bytes = clock.unix_timestamp.to_le_bytes();
-        
-        // Fill first 32 bytes with reporter key
-        id[..32].copy_from_slice(&reporter_bytes);
-        // XOR with timestamp in the first 8 bytes
-        for i in 0..8 {
-            id[i] ^= timestamp_bytes[i];
-        }
-        id
-    };
 
     // Validate description and PoC length
     require!(description.len() <= 256, GameError::InvalidAmount);
@@ -124,7 +110,7 @@ pub fn verify_report_handler(
     is_valid: bool,
 ) -> Result<()> {
     let bug_report = &mut ctx.accounts.bug_report;
-    let game_state = &ctx.accounts.game_state;
+    let game_state = &mut ctx.accounts.game_state;
 
     // Check if report exists and hasn't been verified yet
     require!(!bug_report.is_verified, GameError::BugReportAlreadyVerified);
@@ -135,6 +121,13 @@ pub fn verify_report_handler(
     bug_report.verifier = Some(ctx.accounts.admin.key());
 
     if is_valid {
+    // Ensure reporter account matches report
+    require!(ctx.accounts.reporter_key.key() == bug_report.reporter, GameError::Unauthorized);
+        // Enforce GLORY supply cap for bounty
+        require!(
+            game_state.total_glory_minted.saturating_add(bug_report.bounty_amount) <= GLORY_SUPPLY_CAP,
+            GameError::InvalidAmount
+        );
         // Pay bounty by minting GLORY tokens
         let game_state_key = game_state.key();
         let seeds = &[
@@ -154,7 +147,8 @@ pub fn verify_report_handler(
         );
         token::mint_to(mint_ctx, bug_report.bounty_amount)?;
 
-        bug_report.is_paid = true;
+    bug_report.is_paid = true;
+    game_state.total_glory_minted = game_state.total_glory_minted.saturating_add(bug_report.bounty_amount);
 
         msg!("Bug bounty paid: {} GLORY to {}",
              bug_report.bounty_amount,

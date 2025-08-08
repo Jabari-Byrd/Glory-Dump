@@ -75,8 +75,8 @@ class GloryDumpApp {
             this.updateTheftAmount(e.target.value);
         });
 
-        // Theft button
-        document.getElementById('theftButton').addEventListener('click', () => {
+    // Theft button
+    document.getElementById('stealButton').addEventListener('click', () => {
             this.executeTheft();
         });
 
@@ -311,10 +311,8 @@ class GloryDumpApp {
             // Validate Solana address
             new solanaWeb3.PublicKey(target);
             
-            console.log('Stealing', amount, 'DUMP from', target);
-            
-            // In a real implementation, create and send theft transaction
-            alert('DUMP theft functionality will be implemented with the full Anchor setup');
+            console.log('Attempted theft', amount, 'DUMP from', target);
+            alert('Theft is temporarily disabled pending secure implementation.');
             
         } catch (err) {
             console.error('Theft failed:', err);

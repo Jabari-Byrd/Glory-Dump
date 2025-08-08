@@ -116,19 +116,3 @@ main().catch((error) => {
   console.error("Error:", error);
   process.exit(1);
 });
-  console.log("BridgeGatekeeper deployed to:", await bridgeGatekeeper.getAddress());
-
-  // Set up permissions and relationships
-  console.log("Setting up contract relationships...");
-  
-  // TODO: Set bridge address in DumpToken
-  // TODO: Set fee pot address in DumpToken
-  // TODO: Set bridge gatekeeper permissions
-
-  console.log("Deployment complete!");
-  console.log("=== Contract Addresses ===");
-// Error handling
-main().catch((error) => {
-  console.error("Error:", error);
-  process.exit(1);
-});

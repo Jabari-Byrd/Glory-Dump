@@ -26,17 +26,21 @@ pub const MAX_DUMP_ASSIGNMENT: u64 = 10_000_000_000; // 10 billion DUMP maximum
 pub const BASE_JOIN_FEE: u64 = 10_000_000; // 0.01 SOL
 pub const MAX_JOIN_FEE: u64 = 1_000_000_000; // 1 SOL
 
-// Reward distribution percentages (in basis points)
+// Reward distribution percentages (in basis points, sum to 10000 = 100%)
 pub const WINNER_PERCENTAGE: u64 = 4000; // 40%
-pub const TOP_TIER_PERCENTAGE: u64 = 4000; // 40%
+pub const TOP_TIER_PERCENTAGE: u64 = 3500; // 35%
 pub const MIDDLE_TIER_PERCENTAGE: u64 = 2000; // 20%
-pub const BOTTOM_TIER_PERCENTAGE: u64 = 500; // 5%
+pub const BOTTOM_TIER_PERCENTAGE: u64 = 500;  // 5%
 
 // Bug bounty amounts (in GLORY tokens with 9 decimals)
 pub const CRITICAL_BOUNTY: u64 = 100_000_000_000_000; // 100K GLORY
 pub const HIGH_BOUNTY: u64 = 50_000_000_000_000; // 50K GLORY
 pub const MEDIUM_BOUNTY: u64 = 25_000_000_000_000; // 25K GLORY
 pub const LOW_BOUNTY: u64 = 10_000_000_000_000; // 10K GLORY
+
+// GLORY Supply economics
+// Max total GLORY that can ever be minted by this program (e.g., 1,000,000 GLORY)
+pub const GLORY_SUPPLY_CAP: u64 = 1_000_000_000_000_000; // 1,000,000 * 1e9
 
 // PDA seeds
 pub const GAME_STATE_SEED: &[u8] = b"game_state";
@@ -47,6 +51,7 @@ pub const DUMP_MINT_SEED: &[u8] = b"dump_mint";
 pub const GLORY_MINT_SEED: &[u8] = b"glory_mint";
 pub const FEE_VAULT_SEED: &[u8] = b"fee_vault";
 pub const TREASURY_SEED: &[u8] = b"treasury";
+pub const CLAIM_STATUS_SEED: &[u8] = b"claim_status";
 
 // Token decimals
 pub const DUMP_DECIMALS: u8 = 6;

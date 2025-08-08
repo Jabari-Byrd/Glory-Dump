@@ -44,6 +44,8 @@ pub fn initialize_epoch_handler(ctx: Context<InitializeEpoch>) -> Result<()> {
     epoch_state.highest_volume_player = None;
     epoch_state.is_bonus_epoch = false;
     epoch_state.bonus_multiplier = 100; // 100% = 1x multiplier
+    epoch_state.merkle_root = [0u8; 32];
+    epoch_state.merkle_root_set = false;
 
     msg!("Epoch {} initialized. Waiting period active until {}", 
          game_state.current_epoch, 
@@ -75,10 +77,10 @@ pub struct SignUpForEpoch<'info> {
     #[account(mut)]
     pub player: Signer<'info>,
 
-    /// Admin account to receive join fees
-    /// CHECK: This is the admin account specified in game_state
-    #[account(mut, constraint = admin.key() == game_state.admin)]
-    pub admin: AccountInfo<'info>,
+    /// Treasury account (PDA) to receive join fees (SOL)
+    /// CHECK: PDA validated by seed on initialize; SOL transfers require only writable
+    #[account(mut, address = game_state.treasury)]
+    pub treasury_sol_receiver: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -112,21 +114,25 @@ pub fn sign_up_handler(ctx: Context<SignUpForEpoch>, payment_amount: u64) -> Res
 
     require!(payment_amount >= required_fee, GameError::InsufficientJoinFee);
 
-    // Transfer SOL payment to admin
+    // Transfer SOL payment to treasury
     let ix = anchor_lang::solana_program::system_instruction::transfer(
         &ctx.accounts.player.key(),
-        &ctx.accounts.admin.key(),
+        &ctx.accounts.treasury_sol_receiver.key(),
         payment_amount,
     );
     anchor_lang::solana_program::program::invoke(
         &ix,
         &[
             ctx.accounts.player.to_account_info(),
-            ctx.accounts.admin.to_account_info(),
+            ctx.accounts.treasury_sol_receiver.to_account_info(),
         ],
     )?;
 
-    // Add player to epoch participants
+    // Add player to epoch participants with cap
+    require!(
+        epoch_state.participants.len() < MAX_PARTICIPANTS_PER_EPOCH as usize,
+        GameError::InvalidAmount
+    );
     epoch_state.participants.push(ctx.accounts.player.key());
     
     // Update player state
@@ -228,10 +234,7 @@ pub fn finalize_epoch_handler(ctx: Context<FinalizeEpoch>) -> Result<()> {
     let clock = Clock::get()?;
 
     // Check if epoch has ended
-    require!(
-        clock.unix_timestamp >= epoch_state.end_time,
-        GameError::EpochNotStarted
-    );
+    require!(clock.unix_timestamp >= epoch_state.end_time, GameError::EpochEnded);
 
     // Check if not already finalized
     require!(!epoch_state.is_finalized, GameError::EpochAlreadyFinalized);

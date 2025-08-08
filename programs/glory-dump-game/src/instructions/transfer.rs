@@ -139,15 +139,15 @@ pub fn transfer_dump_handler(ctx: Context<TransferDump>, amount: u64) -> Result<
     // Calculate cooldown based on amount transferred
     let cooldown_duration = calculate_transfer_cooldown(amount);
 
-    // Update sender state
-    sender_state.current_dump_balance = sender_state.current_dump_balance.saturating_sub(amount);
+    // Update sender state (use token account balance for consistency)
+    sender_state.current_dump_balance = ctx.accounts.sender_dump_account.amount.saturating_sub(0); // reflects post-fee transfer
     sender_state.total_dump_given += amount;
     sender_state.total_transfers_made += 1;
     sender_state.last_transfer_time = clock.unix_timestamp;
     sender_state.give_cooldown_end_time = clock.unix_timestamp + cooldown_duration;
 
-    // Update recipient state
-    recipient_state.current_dump_balance += transfer_amount;
+    // Update recipient state (use token account balance)
+    recipient_state.current_dump_balance = ctx.accounts.recipient_dump_account.amount;
     recipient_state.total_dump_received += transfer_amount;
 
     // Update epoch statistics
@@ -237,7 +237,6 @@ pub fn steal_dump_handler(ctx: Context<StealDump>, amount: u64) -> Result<()> {
     let epoch_state = &mut ctx.accounts.epoch_state;
     let clock = Clock::get()?;
 
-    // Basic validations
     require!(!game_state.is_paused, GameError::GamePaused);
     require!(!game_state.is_waiting_period, GameError::EpochNotStarted);
     require!(amount > 0, GameError::InvalidAmount);
@@ -245,72 +244,77 @@ pub fn steal_dump_handler(ctx: Context<StealDump>, amount: u64) -> Result<()> {
         ctx.accounts.thief.key() != ctx.accounts.victim_key.key(),
         GameError::SelfTransfer
     );
-
-    // Check if both players are active participants
     require!(thief_state.is_active_participant, GameError::NotActiveParticipant);
     require!(victim_state.is_active_participant, GameError::NotActiveParticipant);
-
-    // Check cooldown
     require!(
         clock.unix_timestamp >= thief_state.take_cooldown_end_time,
         GameError::PlayerInCooldown
     );
 
-    // Check if victim has enough DUMP
-    require!(
-        ctx.accounts.victim_dump_account.amount >= amount,
-        GameError::InsufficientBalance
-    );
+    // Victim must have sufficient balance
+    require!(ctx.accounts.victim_dump_account.amount >= amount, GameError::InsufficientBalance);
 
-    // Calculate fee
+    // Calculate fee and steal amounts
     let fee_amount = (amount * THEFT_FEE_BASIS_POINTS) / 10000;
     let steal_amount = amount - fee_amount;
 
-    // Update time-weighted averages before balance changes
+    // Update time-weighted averages
     thief_state.update_time_weighted_average(clock.unix_timestamp)?;
     victim_state.update_time_weighted_average(clock.unix_timestamp)?;
 
-    // For theft, we need to use the game_state authority to transfer from victim
-    let game_state_key = game_state.key();
-    let seeds = &[
-        GAME_STATE_SEED,
-        &[game_state.bump],
-    ];
+    // Use program signer (game_state PDA) as delegate to transfer from victim to thief
+    let seeds = &[GAME_STATE_SEED, &[game_state.bump]];
     let signer = &[&seeds[..]];
 
-    // Note: In a real implementation, you'd need additional mechanics to allow
-    // the game state to have authority over player accounts during theft.
-    // This could be done through delegate/approve mechanisms or special theft vaults.
+    // Transfer net amount to thief
+    let transfer_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        Transfer {
+            from: ctx.accounts.victim_dump_account.to_account_info(),
+            to: ctx.accounts.thief_dump_account.to_account_info(),
+            authority: game_state.to_account_info(),
+        },
+        signer,
+    );
+    token::transfer(transfer_ctx, steal_amount)?;
 
-    // For now, we'll simulate the theft by requiring the victim to sign
-    // (in practice, this would be automatic based on game rules)
+    // Transfer fee to fee vault
+    if fee_amount > 0 {
+        let fee_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.victim_dump_account.to_account_info(),
+                to: ctx.accounts.fee_vault.to_account_info(),
+                authority: game_state.to_account_info(),
+            },
+            signer,
+        );
+        token::transfer(fee_ctx, fee_amount)?;
+        game_state.total_fees_collected = game_state.total_fees_collected.saturating_add(fee_amount);
+    }
 
-    // Calculate cooldown based on amount stolen
+    // Cooldown
     let cooldown_duration = calculate_theft_cooldown(amount);
-
-    // Update thief state
-    thief_state.current_dump_balance += steal_amount;
-    thief_state.total_dump_received += steal_amount;
-    thief_state.total_thefts_made += 1;
+    thief_state.total_dump_received = thief_state.total_dump_received.saturating_add(steal_amount);
+    thief_state.total_thefts_made = thief_state.total_thefts_made.saturating_add(1);
     thief_state.last_transfer_time = clock.unix_timestamp;
     thief_state.take_cooldown_end_time = clock.unix_timestamp + cooldown_duration;
 
-    // Update victim state
-    victim_state.current_dump_balance = victim_state.current_dump_balance.saturating_sub(amount);
-    victim_state.total_dump_given += amount;
+    // Sync balances from token accounts
+    thief_state.current_dump_balance = ctx.accounts.thief_dump_account.amount;
+    victim_state.current_dump_balance = ctx.accounts.victim_dump_account.amount;
+    victim_state.total_dump_given = victim_state.total_dump_given.saturating_add(amount);
 
-    // Update epoch statistics
-    epoch_state.total_thefts += 1;
+    epoch_state.total_thefts = epoch_state.total_thefts.saturating_add(1);
 
-    // Update game state
-    game_state.total_fees_collected += fee_amount;
-
-    msg!("Theft: {} DUMP stolen from {} by {} (fee: {} DUMP, cooldown: {}s)",
-         steal_amount,
-         ctx.accounts.victim_key.key(),
-         ctx.accounts.thief.key(),
-         fee_amount,
-         cooldown_duration);
+    msg!(
+        "Theft: {} DUMP from {} to {} (fee: {} DUMP, cooldown: {}s)",
+        steal_amount,
+        ctx.accounts.victim_key.key(),
+        ctx.accounts.thief.key(),
+        fee_amount,
+        cooldown_duration
+    );
 
     Ok(())
 }

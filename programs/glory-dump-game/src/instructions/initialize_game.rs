@@ -80,6 +80,7 @@ pub fn handler(ctx: Context<InitializeGame>, bump: u8) -> Result<()> {
     game_state.total_participants = 0;
     game_state.total_fees_collected = 0;
     game_state.total_glory_distributed = 0;
+    game_state.total_glory_minted = 0;
     game_state.bump = bump;
 
     msg!("Glory Dump Game initialized successfully!");

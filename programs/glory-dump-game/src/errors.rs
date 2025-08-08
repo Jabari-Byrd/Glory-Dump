@@ -82,4 +82,13 @@ pub enum GameError {
     
     #[msg("Unauthorized operation")]
     Unauthorized,
+
+    #[msg("Rewards already claimed")]
+    AlreadyClaimed,
+
+    #[msg("Merkle root not set for this epoch")]
+    MerkleRootNotSet,
+
+    #[msg("Invalid Merkle proof")]
+    InvalidMerkleProof,
 }

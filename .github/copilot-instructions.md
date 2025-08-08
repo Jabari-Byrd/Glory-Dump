@@ -1,3 +1,61 @@
+## Copilot instructions for Glory-Dump
+
+Purpose: Make AI agents productive quickly in this Solana/Anchor project by capturing the repo’s architecture, workflows, and house patterns. Keep answers concrete and tie to these files.
+
+Project snapshot
+- Stack: Solana + Anchor (Rust) program with Node/TypeScript tests and a minimal JS frontend.
+- Key paths: `programs/glory-dump-game/src/{lib.rs,constants.rs,errors.rs,state.rs,instructions/}`, `Anchor.toml`, `package.json`, `scripts/{deploy.js,initialize.js}`, `tests/**/*.ts`, `frontend/app.js`.
+- Program ID: placeholder `GDgame111…` in `lib.rs::declare_id!` and `Anchor.toml`. Must be replaced after real deploys.
+
+Architecture and data model
+- Single Anchor program `glory_dump_game` exposes handlers in `lib.rs` (initialize_game, epoch lifecycle, transfer/steal, tracking, rewards/claims, bug bounty, admin pause).
+- Accounts in `state.rs`:
+	- `GameState` (globals, epoch timings, mints, vaults, supply counters).
+	- `EpochState` (participants, finalization, metrics, rewards/merkle root flags).
+	- `PlayerState` (stake, balances, cooldowns, time-weighted sum, stats).
+	- `ClaimStatus`, `BugReport` plus enums `RewardTier`, `BugSeverity`.
+- PDA seeds in `constants.rs` (e.g., `GAME_STATE_SEED`, `PLAYER_STATE_SEED`, `DUMP_MINT_SEED`, `GLORY_MINT_SEED`, `FEE_VAULT_SEED`, `TREASURY_SEED`, `CLAIM_STATUS_SEED`). Derive with these exact byte seeds.
+- Token decimals: DUMP=6, GLORY=9. GLORY supply cap enforced via `GLORY_SUPPLY_CAP`.
+
+Conventions and patterns
+- Keep PDA seed usage consistent across instructions and tests (see `tests/glory-dump-game.ts` and `scripts/*.js` for examples using `findProgramAddressSync`).
+- Every account struct defines a static size constant (`LEN`/`MAX_LEN`) for rent; update if fields change.
+- Time-weighted average: update before any balance change via the tracking instruction; persisted in `PlayerState.time_weighted_sum` and `last_update_time`.
+- Cooldowns are tracked separately for give/take (`give_cooldown_end_time`, `take_cooldown_end_time`).
+- Errors are centralized in `errors.rs` and reused across handlers.
+
+Build, test, and run
+- Build: `anchor build` or `npm run build`.
+- Tests: `anchor test` or `npm test` (ts-mocha). Tests assume local validator and derive PDAs from the same seeds.
+- Local validator: `npm run localnet` (then set `solana config set --url localhost` as needed).
+- Deploy: `npm run deploy[:devnet|:mainnet]` (Anchor), then initialize on-chain state with `npm run initialize` (Node script calling `initializeGame`).
+- After deploy: update program id in three places: `lib.rs::declare_id!`, `Anchor.toml [programs.<cluster>].glory_dump_game`, and `frontend/app.js` (`programId`). Rebuild after changing Rust ids.
+
+Integration points
+- Tokens: Program-controlled DUMP/GLORY mints are PDAs; fees collected to `FEE_VAULT_SEED` and SOL join fees to `TREASURY_SEED`.
+- Rewards: Merkle-root based claim flow is represented in `EpochState` (root + flag) and `ClaimStatus`; admin sets root; users claim with proof.
+- Frontend (`frontend/app.js`): vanilla web3.js + Phantom. It derives PDAs with the same byte seeds; it’s a scaffold—actual IDL-driven deserialization is not wired.
+- Node scripts (`scripts/deploy.js`, `scripts/initialize.js`): show canonical PDA derivations and program method calls via Anchor workspace.
+
+Examples to mirror
+- PDA derivation (TS):
+	`[gameState, bump] = PublicKey.findProgramAddressSync([Buffer.from('game_state')], programId)`
+- Player state PDA (TS):
+	`[playerState] = PublicKey.findProgramAddressSync([Buffer.from('player_state'), playerPk.toBuffer()], programId)`
+- Transfer fee calc matches constants: `TRANSFER_FEE_BASIS_POINTS = 30` (0.3%). Tests assert example math.
+
+Gotchas
+- Provider cluster in `Anchor.toml` defaults to Localnet; keep CLI and tests on the same cluster.
+- Keep program id in sync across Rust, Anchor.toml, and frontend to avoid “account not found”/IDL mismatch.
+- Account sizes: changing vectors or max participants requires revisiting `MAX_LEN` and may impact rent.
+
+When adding/changing instructions
+- Add a module under `src/instructions/`, define `#[derive(Accounts)]` context with exact seed constraints, export handler; wire it in `lib.rs` under `#[program]`.
+- Use existing seeds and error variants; update account size constants as needed; add/adjust tests in `tests/**/*.ts`.
+
+Where to look first
+- `constants.rs` for seeds/parameters, `state.rs` for data shapes, `lib.rs` to find entrypoints, `scripts/*.js` and `tests/**/*.ts` for canonical client patterns, and `Anchor.toml`/`package.json` for commands.
+
 # GLORY/DUMP Solana Development Guide
 
 ## Architecture Overview

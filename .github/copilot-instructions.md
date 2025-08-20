@@ -1,69 +1,66 @@
-## Copilot instructions for Glory-Dump
+# Glory/Dump AI Coding Agent Instructions
 
-Purpose: Make AI agents productive quickly in this Solana/Anchor project by capturing the repo’s architecture, workflows, and house patterns. Keep answers concrete and tie to these files.
+This document provides guidance for AI coding agents working on the Glory/Dump project.
 
-Project snapshot
+## 1. Big Picture: Solana-Based Reverse Wealth Game
 
-- Stack: Solana + Anchor (Rust) program with Node/TypeScript tests and a minimal JS frontend.
-- Key paths: `programs/glory-dump-game/src/{lib.rs,constants.rs,errors.rs,state.rs,instructions/}`, `Anchor.toml`, `package.json`, `scripts/{deploy.js,initialize.js}`, `tests/**/*.ts`, `frontend/app.js`.
-- Program ID: placeholder `GDgame111…` in `lib.rs::declare_id!` and `Anchor.toml`. Must be replaced after real deploys.
+The core of this project is `glory-dump-game`, a Solana Anchor program written in Rust. It's a "reverse wealth" game where the goal is to have the *lowest* average balance of a token called `DUMP`.
 
-Architecture and data model
+- **`programs/glory-dump-game`**: Contains the on-chain game logic.
+- **`tests/`**: Contains TypeScript tests that simulate player interactions.
+- **`frontend/`**: A simple vanilla JS frontend for interacting with the game.
+- **`scripts/`**: Contains deployment and initialization scripts.
 
-- Single Anchor program `glory_dump_game` exposes handlers in `lib.rs` (initialize_game, epoch lifecycle, transfer/steal, tracking, rewards/claims, bug bounty, admin pause).
-- Accounts in `state.rs`:
-  - `GameState` (globals, epoch timings, mints, vaults, supply counters).
-  - `EpochState` (participants, finalization, metrics, rewards/merkle root flags).
-  - `PlayerState` (stake, balances, cooldowns, time-weighted sum, stats).
-  - `ClaimStatus`, `BugReport` plus enums `RewardTier`, `BugSeverity`.
-- PDA seeds in `constants.rs` (e.g., `GAME_STATE_SEED`, `PLAYER_STATE_SEED`, `DUMP_MINT_SEED`, `GLORY_MINT_SEED`, `FEE_VAULT_SEED`, `TREASURY_SEED`, `CLAIM_STATUS_SEED`). Derive with these exact byte seeds.
-- Token decimals: DUMP=6, GLORY=9. GLORY supply cap enforced via `GLORY_SUPPLY_CAP`.
+The game operates in epochs. Players sign up, receive a random amount of `DUMP`, and then try to get rid of it before the epoch ends. Winners are rewarded with `GLORY` tokens.
 
-Conventions and patterns
+## 2. Key Files and Directories
 
-- Keep PDA seed usage consistent across instructions and tests (see `tests/glory-dump-game.ts` and `scripts/*.js` for examples using `findProgramAddressSync`).
-- Every account struct defines a static size constant (`LEN`/`MAX_LEN`) for rent; update if fields change.
-- Time-weighted average: update before any balance change via the tracking instruction; persisted in `PlayerState.time_weighted_sum` and `last_update_time`.
-- Cooldowns are tracked separately for give/take (`give_cooldown_end_time`, `take_cooldown_end_time`).
-- Errors are centralized in `errors.rs` and reused across handlers.
+- **`programs/glory-dump-game/src/lib.rs`**: The main entry point for the Anchor program. It defines the program's public interface.
+- **`programs/glory-dump-game/src/instructions/`**: This directory contains the core logic for each of the program's instructions (e.g., `transfer.rs`, `claims.rs`, `epoch.rs`). Each file corresponds to a specific action a player can take.
+- **`programs/glory-dump-game/src/state.rs`**: Defines the data structures used to store the game's state on-chain (e.g., `GameState`, `PlayerState`).
+- **`tests/glory-dump-game.ts`**: The primary integration test file. It's a great place to see how the different program instructions are used in practice.
+- **`Anchor.toml`**: The configuration file for the Anchor project. It defines the program's dependencies and other settings.
 
-Build, test, and run
+## 3. Developer Workflow
 
-- Build: `anchor build` or `npm run build`.
-- Tests: `anchor test` or `npm test` (ts-mocha). Tests assume local validator and derive PDAs from the same seeds.
-- Local validator: `npm run localnet` (then set `solana config set --url localhost` as needed).
-- Deploy: `npm run deploy[:devnet|:mainnet]` (Anchor), then initialize on-chain state with `npm run initialize` (Node script calling `initializeGame`).
-- After deploy: update program id in three places: `lib.rs::declare_id!`, `Anchor.toml [programs.<cluster>].glory_dump_game`, and `frontend/app.js` (`programId`). Rebuild after changing Rust ids.
+The primary development workflow involves editing the Rust program, building it, and then running the TypeScript tests.
 
-Integration points
+**Build the program:**
+```bash
+anchor build
+```
 
-- Tokens: Program-controlled DUMP/GLORY mints are PDAs; fees collected to `FEE_VAULT_SEED` and SOL join fees to `TREASURY_SEED`.
-- Rewards: Merkle-root based claim flow is represented in `EpochState` (root + flag) and `ClaimStatus`; admin sets root; users claim with proof.
-- Frontend (`frontend/app.js`): vanilla web3.js + Phantom. It derives PDAs with the same byte seeds; it’s a scaffold—actual IDL-driven deserialization is not wired.
-- Node scripts (`scripts/deploy.js`, `scripts/initialize.js`): show canonical PDA derivations and program method calls via Anchor workspace.
+**Run the tests:**
+```bash
+anchor test
+```
 
-Examples to mirror
+**Deploy to Devnet:**
+```bash
+anchor deploy --provider.cluster devnet
+```
 
-- PDA derivation (TS):
-  `[gameState, bump] = PublicKey.findProgramAddressSync([Buffer.from('game_state')], programId)`
-- Player state PDA (TS):
-  `[playerState] = PublicKey.findProgramAddressSync([Buffer.from('player_state'), playerPk.toBuffer()], programId)`
-- Transfer fee calc matches constants: `TRANSFER_FEE_BASIS_POINTS = 30` (0.3%). Tests assert example math.
+The tests in `tests/glory-dump-game.ts` are the best way to understand how to interact with the program from a client-side application.
 
-Gotchas
+## 4. Project-Specific Conventions
 
-- Provider cluster in `Anchor.toml` defaults to Localnet; keep CLI and tests on the same cluster.
-- Keep program id in sync across Rust, Anchor.toml, and frontend to avoid “account not found”/IDL mismatch.
-- Account sizes: changing vectors or max participants requires revisiting `MAX_LEN` and may impact rent.
+- **Time-Weighted Average DUMP**: A player's score is not their final `DUMP` balance, but their average balance over the entire epoch. This logic is primarily handled in `programs/glory-dump-game/src/instructions/tracking.rs`.
+- **Instruction-Level Logic**: Each player action is encapsulated in its own file in the `instructions` directory. This is a standard Anchor pattern.
+- **Fees**: A 0.3% fee is taken on all `DUMP` transfers and thefts. This is a key part of the game's tokenomics.
+- **Vanilla JS Frontend**: The frontend is intentionally simple. It uses the `@solana/web3.js` library to interact directly with the Solana network. There is no complex framework.
 
-When adding/changing instructions
+When working on this project, please adhere to these conventions.
 
-- Add a module under `src/instructions/`, define `#[derive(Accounts)]` context with exact seed constraints, export handler; wire it in `lib.rs` under `#[program]`.
-- Use existing seeds and error variants; update account size constants as needed; add/adjust tests in `tests/**/*.ts`.
+## 5. Maintaining a Clean Workspace
 
-Where to look first
+The `anchor build` command creates a `target` directory with build artifacts. This directory can become large over time. If you need to free up space or ensure a completely fresh build, you can run:
 
-- `constants.rs` for seeds/parameters, `state.rs` for data shapes, `lib.rs` to find entrypoints, `scripts/*.js` and `tests/**/*.ts` for canonical client patterns, and `Anchor.toml`/`package.json` for commands.
+```bash
+anchor clean
+```
+
+This will remove the `target` directory. Remember to run `anchor build` again before running tests.
+
 
 # GLORY/DUMP Solana Development Guide
 

@@ -13,37 +13,41 @@ async function main() {
   console.log("Program ID:", program.programId.toString());
 
   // Check wallet balance
-  const balance = await provider.connection.getBalance(provider.wallet.publicKey);
+  const balance = await provider.connection.getBalance(
+    provider.wallet.publicKey,
+  );
   console.log("Wallet balance:", balance / anchor.web3.LAMPORTS_PER_SOL, "SOL");
 
   if (balance < 0.1 * anchor.web3.LAMPORTS_PER_SOL) {
-    throw new Error("Insufficient SOL balance for deployment. Need at least 0.1 SOL.");
+    throw new Error(
+      "Insufficient SOL balance for deployment. Need at least 0.1 SOL.",
+    );
   }
 
   // Derive PDAs
   const [gameStatePda, gameStateBump] = PublicKey.findProgramAddressSync(
     [Buffer.from("game_state")],
-    program.programId
+    program.programId,
   );
 
   const [dumpMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("dump_mint")],
-    program.programId
+    program.programId,
   );
 
   const [gloryMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("glory_mint")],
-    program.programId
+    program.programId,
   );
 
   const [treasuryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury")],
-    program.programId
+    program.programId,
   );
 
   const [feeVaultPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("fee_vault")],
-    program.programId
+    program.programId,
   );
 
   console.log("\nDerived Program Addresses:");
@@ -98,7 +102,6 @@ async function main() {
     console.log("Is waiting period:", gameState.isWaitingPeriod);
     console.log("Is paused:", gameState.isPaused);
     console.log("Total participants:", gameState.totalParticipants.toString());
-
   } catch (error) {
     console.error("Deployment failed:", error);
     throw error;
@@ -106,7 +109,10 @@ async function main() {
 
   console.log("\n🎉 Deployment successful!");
   console.log("\nNext steps:");
-  console.log("1. Update frontend/app.js with the program ID:", program.programId.toString());
+  console.log(
+    "1. Update frontend/app.js with the program ID:",
+    program.programId.toString(),
+  );
   console.log("2. Update the network endpoint if deploying to mainnet");
   console.log("3. Test the game functions through the frontend or CLI");
 }

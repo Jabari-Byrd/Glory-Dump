@@ -13,7 +13,9 @@ import {
 import { expect } from "chai";
 
 describe("glory-dump-game", () => {
-  const programId = new PublicKey("GDgame1111111111111111111111111111111111111");
+  const programId = new PublicKey(
+    "GDgame1111111111111111111111111111111111111",
+  );
 
   // Test accounts
   let admin = Keypair.generate();
@@ -32,37 +34,37 @@ describe("glory-dump-game", () => {
     // Derive PDAs
     [gameStatePda, gameStateBump] = PublicKey.findProgramAddressSync(
       [Buffer.from("game_state")],
-      programId
+      programId,
     );
 
     [dumpMintPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("dump_mint")],
-      programId
+      programId,
     );
 
     [gloryMintPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("glory_mint")],
-      programId
+      programId,
     );
 
     [treasuryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("treasury")],
-      programId
+      programId,
     );
 
     [feeVaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("fee_vault")],
-      programId
+      programId,
     );
   });
 
   it("Should verify program compilation and setup", async () => {
     // Basic test to verify the program compiles and workspace is set up correctly
-  expect(programId).to.not.be.undefined;
+    expect(programId).to.not.be.undefined;
     expect(gameStatePda).to.not.be.undefined;
     expect(admin.publicKey).to.not.be.undefined;
-    
-  console.log("✅ Program ID:", programId.toString());
+
+    console.log("✅ Program ID:", programId.toString());
     console.log("✅ Game State PDA:", gameStatePda.toString());
     console.log("✅ Admin Public Key:", admin.publicKey.toString());
   });
@@ -71,7 +73,7 @@ describe("glory-dump-game", () => {
     // Test PDA derivation logic matches the program
     const [derivedGameState, derivedBump] = PublicKey.findProgramAddressSync(
       [Buffer.from("game_state")],
-      programId
+      programId,
     );
 
     expect(derivedGameState.equals(gameStatePda)).to.be.true;
@@ -80,7 +82,7 @@ describe("glory-dump-game", () => {
     // Test player state PDA
     const [player1StatePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("player_state"), player1.publicKey.toBuffer()],
-      programId
+      programId,
     );
 
     expect(player1StatePda).to.not.be.undefined;
@@ -91,12 +93,12 @@ describe("glory-dump-game", () => {
     // Verify associated token account derivation
     const player1DumpAccount = await getAssociatedTokenAddress(
       dumpMintPda,
-      player1.publicKey
+      player1.publicKey,
     );
 
     const player1GloryAccount = await getAssociatedTokenAddress(
       gloryMintPda,
-      player1.publicKey
+      player1.publicKey,
     );
 
     expect(player1DumpAccount).to.not.be.undefined;
@@ -110,10 +112,12 @@ describe("glory-dump-game", () => {
     // Test fee calculation logic (matches constants.rs)
     const TRANSFER_FEE_BASIS_POINTS = 30; // 0.3%
     const transferAmount = 1000000; // 1 DUMP
-    
-  const expectedFee = Math.floor(transferAmount * TRANSFER_FEE_BASIS_POINTS / 10000);
-  expect(expectedFee).to.equal(3000); // 0.3% of 1M = 3,000
-    
+
+    const expectedFee = Math.floor(
+      (transferAmount * TRANSFER_FEE_BASIS_POINTS) / 10000,
+    );
+    expect(expectedFee).to.equal(3000); // 0.3% of 1M = 3,000
+
     console.log("✅ Transfer amount:", transferAmount);
     console.log("✅ Expected fee (0.3%):", expectedFee);
   });
@@ -122,17 +126,23 @@ describe("glory-dump-game", () => {
     // Test cooldown logic similar to the smart contract
     const TRANSFER_COOLDOWN_MIN = 15; // seconds
     const TRANSFER_COOLDOWN_MAX = 1800; // 30 minutes
-    
+
     const smallAmount = 1000;
     const largeAmount = 1000000000; // 1B DUMP
-    
+
     // Simplified cooldown calculation (actual implementation may differ)
-    const smallCooldown = Math.max(TRANSFER_COOLDOWN_MIN, Math.min(TRANSFER_COOLDOWN_MAX, Math.sqrt(smallAmount)));
-    const largeCooldown = Math.max(TRANSFER_COOLDOWN_MIN, Math.min(TRANSFER_COOLDOWN_MAX, Math.sqrt(largeAmount)));
-    
+    const smallCooldown = Math.max(
+      TRANSFER_COOLDOWN_MIN,
+      Math.min(TRANSFER_COOLDOWN_MAX, Math.sqrt(smallAmount)),
+    );
+    const largeCooldown = Math.max(
+      TRANSFER_COOLDOWN_MIN,
+      Math.min(TRANSFER_COOLDOWN_MAX, Math.sqrt(largeAmount)),
+    );
+
     expect(smallCooldown).to.be.at.least(TRANSFER_COOLDOWN_MIN);
     expect(largeCooldown).to.be.at.most(TRANSFER_COOLDOWN_MAX);
-    
+
     console.log("✅ Small amount cooldown:", smallCooldown, "seconds");
     console.log("✅ Large amount cooldown:", largeCooldown, "seconds");
   });
@@ -143,14 +153,19 @@ describe("glory-dump-game", () => {
     const WAITING_PERIOD = 7 * 24 * 60 * 60; // 7 days
     const MIN_DUMP_ASSIGNMENT = 1_000_000; // 1 DUMP
     const MAX_DUMP_ASSIGNMENT = 10_000_000_000; // 10B DUMP
-    
+
     expect(EPOCH_DURATION).to.equal(2592000); // 30 days in seconds
     expect(WAITING_PERIOD).to.equal(604800); // 7 days in seconds
     expect(MIN_DUMP_ASSIGNMENT).to.be.lessThan(MAX_DUMP_ASSIGNMENT);
-    
+
     console.log("✅ Epoch duration:", EPOCH_DURATION, "seconds");
     console.log("✅ Waiting period:", WAITING_PERIOD, "seconds");
-    console.log("✅ DUMP assignment range:", MIN_DUMP_ASSIGNMENT, "to", MAX_DUMP_ASSIGNMENT);
+    console.log(
+      "✅ DUMP assignment range:",
+      MIN_DUMP_ASSIGNMENT,
+      "to",
+      MAX_DUMP_ASSIGNMENT,
+    );
   });
 
   it("Should verify bounty reward constants", async () => {
@@ -159,11 +174,11 @@ describe("glory-dump-game", () => {
     const HIGH_BOUNTY = 50_000_000_000_000; // 50K GLORY
     const MEDIUM_BOUNTY = 25_000_000_000_000; // 25K GLORY
     const LOW_BOUNTY = 10_000_000_000_000; // 10K GLORY
-    
+
     expect(CRITICAL_BOUNTY).to.be.greaterThan(HIGH_BOUNTY);
     expect(HIGH_BOUNTY).to.be.greaterThan(MEDIUM_BOUNTY);
     expect(MEDIUM_BOUNTY).to.be.greaterThan(LOW_BOUNTY);
-    
+
     console.log("✅ Bug bounty rewards verified");
     console.log("  - Critical:", CRITICAL_BOUNTY / 1e9, "GLORY");
     console.log("  - High:", HIGH_BOUNTY / 1e9, "GLORY");

@@ -155,7 +155,7 @@ typechain-types/
 
 # Solana/Anchor specific
 target/
-Cargo.lock
+# Allow committing Cargo.lock for reproducible Rust builds (was previously ignored)
 .anchor/
 test-ledger/
 .DS_Store
@@ -168,7 +168,7 @@ test-results/
 coverage/
 
 # Rust specific
-Cargo.lock
+# Keep Cargo.lock tracked (removed from ignore)
 target/
 **/*.rs.bk
 *.pdb

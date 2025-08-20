@@ -1,201 +1,263 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GLORY/DUMP - The Reverse Wealth Game on Solana</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css" />
     <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
     <script src="https://unpkg.com/@coral-xyz/anchor@latest/dist/browser.bundle.js"></script>
-</head>
+  </head>
 
-<body>
+  <body>
     <div class="container">
-        <header>
-            <h1>🎭 GLORY/DUMP</h1>
-            <p class="subtitle">The Reverse Wealth, Self-Draining, PvP Meme Token on Solana</p>
-            <div class="wallet-section">
-                <button id="connectWallet" class="btn btn-primary">Connect Phantom</button>
-                <span id="walletAddress" class="wallet-address"></span>
-                <div id="networkStatus" class="network-status">Solana Devnet</div>
+      <header>
+        <h1>🎭 GLORY/DUMP</h1>
+        <p class="subtitle">
+          The Reverse Wealth, Self-Draining, PvP Meme Token on Solana
+        </p>
+        <div class="wallet-section">
+          <button id="connectWallet" class="btn btn-primary">
+            Connect Phantom
+          </button>
+          <span id="walletAddress" class="wallet-address"></span>
+          <div id="networkStatus" class="network-status">Solana Devnet</div>
+        </div>
+      </header>
+
+      <main>
+        <div class="game-stats">
+          <div class="stat-card">
+            <h3>Your DUMP</h3>
+            <div id="dumpBalance" class="stat-value">0 DUMP</div>
+            <div id="dumpAverage" class="stat-subtitle">
+              Time-weighted avg: 0
             </div>
-        </header>
+          </div>
 
-        <main>
-            <div class="game-stats">
-                <div class="stat-card">
-                    <h3>Your DUMP</h3>
-                    <div id="dumpBalance" class="stat-value">0 DUMP</div>
-                    <div id="dumpAverage" class="stat-subtitle">Time-weighted avg: 0</div>
-                </div>
+          <div class="stat-card">
+            <h3>Your GLORY</h3>
+            <div id="gloryBalance" class="stat-value">0 GLORY</div>
+            <div class="stat-subtitle">Rewards for winning</div>
+          </div>
 
-                <div class="stat-card">
-                    <h3>Your GLORY</h3>
-                    <div id="gloryBalance" class="stat-value">0 GLORY</div>
-                    <div class="stat-subtitle">Rewards for winning</div>
-                </div>
+          <div class="stat-card">
+            <h3>Your Rank</h3>
+            <div id="userRank" class="stat-value">-</div>
+            <div class="stat-subtitle">Lower DUMP = Higher Rank</div>
+          </div>
 
-                <div class="stat-card">
-                    <h3>Your Rank</h3>
-                    <div id="userRank" class="stat-value">-</div>
-                    <div class="stat-subtitle">Lower DUMP = Higher Rank</div>
-                </div>
+          <div class="stat-card">
+            <h3>Your Stake</h3>
+            <div id="stakeAmount" class="stat-value">0 DUMP</div>
+            <div class="stat-subtitle">Staked for participation</div>
+          </div>
+        </div>
 
-                <div class="stat-card">
-                    <h3>Your Stake</h3>
-                    <div id="stakeAmount" class="stat-value">0 DUMP</div>
-                    <div class="stat-subtitle">Staked for participation</div>
-                </div>
+        <div class="epoch-info">
+          <h2>Current Epoch</h2>
+          <div class="epoch-timer">
+            <div id="epochTimeRemaining" class="timer">30 days remaining</div>
+            <div class="epoch-number">
+              Epoch #<span id="currentEpoch">1</span>
             </div>
+            <div id="epochPhase" class="epoch-phase">Waiting Period</div>
+          </div>
+          <button id="finalizeEpoch" class="btn btn-secondary" disabled>
+            Finalize Epoch
+          </button>
+        </div>
 
-            <div class="epoch-info">
-                <h2>Current Epoch</h2>
-                <div class="epoch-timer">
-                    <div id="epochTimeRemaining" class="timer">30 days remaining</div>
-                    <div class="epoch-number">Epoch #<span id="currentEpoch">1</span></div>
-                    <div id="epochPhase" class="epoch-phase">Waiting Period</div>
-                </div>
-                <button id="finalizeEpoch" class="btn btn-secondary" disabled>Finalize Epoch</button>
-            </div>
-
-            <div class="participation-section">
-                <h2>🎮 Participation</h2>
-                <div class="participation-interface">
-                    <div class="stake-section">
-                        <div class="input-group">
-                            <label for="stakeAmount">Stake DUMP to Participate:</label>
-                            <input type="number" id="stakeAmountInput" placeholder="1000000" min="1000000" />
-                            <span class="input-hint">Minimum: 1,000,000 DUMP</span>
-                        </div>
-                        <button id="stakeButton" class="btn btn-primary">Stake for Participation</button>
-                        <button id="withdrawStakeButton" class="btn btn-secondary">Withdraw Stake</button>
-                    </div>
-                    
-                    <div class="signup-section">
-                        <div class="join-fee-info">
-                            <div>Join Fee: <span id="currentJoinFee">0.01 SOL</span></div>
-                            <div class="fee-explanation">Fee increases as waiting period progresses</div>
-                        </div>
-                        <button id="signupButton" class="btn btn-success">Sign Up for Next Epoch</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="game-actions">
-                <div class="action-section">
-                    <h2>🎯 Dump DUMP</h2>
-                    <div class="dump-interface">
-                        <div class="input-group">
-                            <label for="dumpTarget">Target Address:</label>
-                            <input type="text" id="dumpTarget" placeholder="Solana wallet address..." />
-                        </div>
-                        <div class="input-group">
-                            <label for="dumpAmount">Amount to Dump:</label>
-                            <input type="range" id="dumpSlider" min="0" max="100" value="10" />
-                            <div class="slider-value">
-                                <span id="dumpAmount">0</span> DUMP
-                            </div>
-                        </div>
-                        <div class="cooldown-info">
-                            <div>Give Cooldown: <span id="giveCooldownTime">0s</span></div>
-                            <div>Fee: <span id="transferFee">0.3%</span></div>
-                        </div>
-                        <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
-                    </div>
-                </div>
-
-                <div class="action-section">
-                    <h2>🦹‍♂️ Steal DUMP</h2>
-                    <div class="theft-interface">
-                        <div class="input-group">
-                            <label for="theftTarget">Victim Address:</label>
-                            <input type="text" id="theftTarget" placeholder="Solana wallet address..." />
-                        </div>
-                        <div class="input-group">
-                            <label for="theftAmount">Amount to Steal:</label>
-                            <input type="range" id="theftSlider" min="0" max="100" value="10" />
-                            <div class="slider-value">
-                                <span id="theftAmount">0</span> DUMP
-                            </div>
-                        </div>
-                        <div class="theft-info">
-                            <div>Take Cooldown: <span id="takeCooldownTime">0s</span></div>
-                            <div>Fee: <span id="theftFee">0</span> DUMP</div>
-                            <div>Theft Cost: <span id="theftCost">0</span> DUMP</div>
-                        </div>
-                        <button id="stealButton" class="btn btn-warning">STEAL IT!</button>
-                    </div>
-                </div>
+        <div class="participation-section">
+          <h2>🎮 Participation</h2>
+          <div class="participation-interface">
+            <div class="stake-section">
+              <div class="input-group">
+                <label for="stakeAmount">Stake DUMP to Participate:</label>
+                <input
+                  type="number"
+                  id="stakeAmountInput"
+                  placeholder="1000000"
+                  min="1000000"
+                />
+                <span class="input-hint">Minimum: 1,000,000 DUMP</span>
+              </div>
+              <button id="stakeButton" class="btn btn-primary">
+                Stake for Participation
+              </button>
+              <button id="withdrawStakeButton" class="btn btn-secondary">
+                Withdraw Stake
+              </button>
             </div>
 
-            <div class="leaderboard">
-                <h2>🏆 Leaderboard</h2>
-                <div class="leaderboard-header">
-                    <span>Rank</span>
-                    <span>Address</span>
-                    <span>Avg DUMP Held</span>
+            <div class="signup-section">
+              <div class="join-fee-info">
+                <div>Join Fee: <span id="currentJoinFee">0.01 SOL</span></div>
+                <div class="fee-explanation">
+                  Fee increases as waiting period progresses
                 </div>
-                <div id="leaderboardList" class="leaderboard-list">
-                    <div class="loading">Loading leaderboard...</div>
-                </div>
+              </div>
+              <button id="signupButton" class="btn btn-success">
+                Sign Up for Next Epoch
+              </button>
             </div>
+          </div>
+        </div>
 
-            <div class="fee-pot">
-                <h2>💰 Fee Pot</h2>
-                <div class="fee-stats">
-                    <div>Total Fees: <span id="totalFees">0</span> DUMP</div>
-                    <div>GLORY Burned: <span id="gloryBurned">0</span></div>
+        <div class="game-actions">
+          <div class="action-section">
+            <h2>🎯 Dump DUMP</h2>
+            <div class="dump-interface">
+              <div class="input-group">
+                <label for="dumpTarget">Target Address:</label>
+                <input
+                  type="text"
+                  id="dumpTarget"
+                  placeholder="Solana wallet address..."
+                />
+              </div>
+              <div class="input-group">
+                <label for="dumpAmount">Amount to Dump:</label>
+                <input
+                  type="range"
+                  id="dumpSlider"
+                  min="0"
+                  max="100"
+                  value="10"
+                />
+                <div class="slider-value">
+                  <span id="dumpAmount">0</span> DUMP
                 </div>
-                <button id="executeBuyback" class="btn btn-success">Execute Buyback</button>
+              </div>
+              <div class="cooldown-info">
+                <div>Give Cooldown: <span id="giveCooldownTime">0s</span></div>
+                <div>Fee: <span id="transferFee">0.3%</span></div>
+              </div>
+              <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
             </div>
+          </div>
 
-            <div class="bug-bounty">
-                <h2>🐛 Bug Bounty Program</h2>
-                <div class="bounty-stats">
-                    <div>Bounty Reserve: <span id="bountyReserve">0</span> GLORY</div>
-                    <div>Total Reports: <span id="totalReports">0</span></div>
+          <div class="action-section">
+            <h2>🦹‍♂️ Steal DUMP</h2>
+            <div class="theft-interface">
+              <div class="input-group">
+                <label for="theftTarget">Victim Address:</label>
+                <input
+                  type="text"
+                  id="theftTarget"
+                  placeholder="Solana wallet address..."
+                />
+              </div>
+              <div class="input-group">
+                <label for="theftAmount">Amount to Steal:</label>
+                <input
+                  type="range"
+                  id="theftSlider"
+                  min="0"
+                  max="100"
+                  value="10"
+                />
+                <div class="slider-value">
+                  <span id="theftAmount">0</span> DUMP
                 </div>
-                
-                <div class="bounty-interface">
-                    <h3>Submit Bug Report</h3>
-                    <div class="input-group">
-                        <label for="bugSeverity">Severity Level:</label>
-                        <select id="bugSeverity">
-                            <option value="0">LOW - 10K GLORY</option>
-                            <option value="1">MEDIUM - 25K GLORY</option>
-                            <option value="2">HIGH - 50K GLORY</option>
-                            <option value="3">CRITICAL - 100K GLORY</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="bugDescription">Bug Description:</label>
-                        <textarea id="bugDescription" placeholder="Describe the bug in detail..." rows="3"></textarea>
-                    </div>
-                    <div class="input-group">
-                        <label for="bugProofOfConcept">Proof of Concept (Optional):</label>
-                        <textarea id="bugProofOfConcept" placeholder="Provide code or steps to reproduce..." rows="3"></textarea>
-                    </div>
-                    <button id="submitBugReport" class="btn btn-info">Submit Report</button>
-                </div>
-
-                <div class="bug-reports">
-                    <h3>Bug Reports</h3>
-                    <button id="viewBugReports" class="btn btn-secondary">Refresh Reports</button>
-                    <div id="bugReportsContainer" class="reports-list">
-                        <div class="loading">No bug reports yet...</div>
-                    </div>
-                </div>
+              </div>
+              <div class="theft-info">
+                <div>Take Cooldown: <span id="takeCooldownTime">0s</span></div>
+                <div>Fee: <span id="theftFee">0</span> DUMP</div>
+                <div>Theft Cost: <span id="theftCost">0</span> DUMP</div>
+              </div>
+              <button id="stealButton" class="btn btn-warning">
+                STEAL IT!
+              </button>
             </div>
-        </main>
+          </div>
+        </div>
 
-        <footer>
-            <p>⚠️ This is a game, not an investment. The goal is to have the LEAST DUMP!</p>
-            <p>Built with ❤️ by Prime Anomaly</p>
-        </footer>
+        <div class="leaderboard">
+          <h2>🏆 Leaderboard</h2>
+          <div class="leaderboard-header">
+            <span>Rank</span>
+            <span>Address</span>
+            <span>Avg DUMP Held</span>
+          </div>
+          <div id="leaderboardList" class="leaderboard-list">
+            <div class="loading">Loading leaderboard...</div>
+          </div>
+        </div>
+
+        <div class="fee-pot">
+          <h2>💰 Fee Pot</h2>
+          <div class="fee-stats">
+            <div>Total Fees: <span id="totalFees">0</span> DUMP</div>
+            <div>GLORY Burned: <span id="gloryBurned">0</span></div>
+          </div>
+          <button id="executeBuyback" class="btn btn-success">
+            Execute Buyback
+          </button>
+        </div>
+
+        <div class="bug-bounty">
+          <h2>🐛 Bug Bounty Program</h2>
+          <div class="bounty-stats">
+            <div>Bounty Reserve: <span id="bountyReserve">0</span> GLORY</div>
+            <div>Total Reports: <span id="totalReports">0</span></div>
+          </div>
+
+          <div class="bounty-interface">
+            <h3>Submit Bug Report</h3>
+            <div class="input-group">
+              <label for="bugSeverity">Severity Level:</label>
+              <select id="bugSeverity">
+                <option value="0">LOW - 10K GLORY</option>
+                <option value="1">MEDIUM - 25K GLORY</option>
+                <option value="2">HIGH - 50K GLORY</option>
+                <option value="3">CRITICAL - 100K GLORY</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="bugDescription">Bug Description:</label>
+              <textarea
+                id="bugDescription"
+                placeholder="Describe the bug in detail..."
+                rows="3"
+              ></textarea>
+            </div>
+            <div class="input-group">
+              <label for="bugProofOfConcept"
+                >Proof of Concept (Optional):</label
+              >
+              <textarea
+                id="bugProofOfConcept"
+                placeholder="Provide code or steps to reproduce..."
+                rows="3"
+              ></textarea>
+            </div>
+            <button id="submitBugReport" class="btn btn-info">
+              Submit Report
+            </button>
+          </div>
+
+          <div class="bug-reports">
+            <h3>Bug Reports</h3>
+            <button id="viewBugReports" class="btn btn-secondary">
+              Refresh Reports
+            </button>
+            <div id="bugReportsContainer" class="reports-list">
+              <div class="loading">No bug reports yet...</div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer>
+        <p>
+          ⚠️ This is a game, not an investment. The goal is to have the LEAST
+          DUMP!
+        </p>
+        <p>Built with ❤️ by Prime Anomaly</p>
+      </footer>
     </div>
 
     <script src="app.js"></script>
-</body>
-
+  </body>
 </html>

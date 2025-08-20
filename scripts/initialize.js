@@ -15,27 +15,27 @@ async function initializeGame() {
   // Derive PDAs
   const [gameStatePda, gameStateBump] = PublicKey.findProgramAddressSync(
     [Buffer.from("game_state")],
-    program.programId
+    program.programId,
   );
 
   const [dumpMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("dump_mint")],
-    program.programId
+    program.programId,
   );
 
   const [gloryMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("glory_mint")],
-    program.programId
+    program.programId,
   );
 
   const [treasuryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury")],
-    program.programId
+    program.programId,
   );
 
   const [feeVaultPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("fee_vault")],
-    program.programId
+    program.programId,
   );
 
   try {
@@ -75,7 +75,6 @@ async function initializeGame() {
     console.log("DUMP Mint:", dumpMintPda.toString());
     console.log("GLORY Mint:", gloryMintPda.toString());
     console.log("==========================================");
-
   } catch (error) {
     console.error("Initialization failed:", error);
     throw error;

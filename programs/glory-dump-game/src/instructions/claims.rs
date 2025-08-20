@@ -68,7 +68,6 @@ pub struct ClaimRewards<'info> {
     #[account(
         init_if_needed,
         payer = claimer,
-        mut,
         associated_token::mint = glory_mint,
         associated_token::authority = claimer
     )]
@@ -131,7 +130,7 @@ pub fn claim_rewards_handler(
         MintTo {
             mint: ctx.accounts.glory_mint.to_account_info(),
             to: ctx.accounts.claimer_glory_account.to_account_info(),
-            authority: ctx.accounts.game_state.to_account_info(),
+            authority: game_state.to_account_info(),
         },
         signer,
     );

@@ -1,0 +1,11 @@
+allowBuilds:
+  bufferutil: false
+  utf-8-validate: false
+# Anchor 1.2/Web3 1.x still declare older major ranges. These compatible
+# overrides close the audited transitive advisories until upstream catches up.
+# Keep the frontend checks, local-validator smoke, and pnpm audit green when
+# changing or removing them.
+overrides:
+  stream-json: 3.6.0
+  toml: 4.2.0
+  uuid: 11.1.1

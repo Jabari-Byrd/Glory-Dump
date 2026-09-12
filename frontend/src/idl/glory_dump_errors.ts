@@ -1,0 +1,36 @@
+
+export const GloryDumpErrorCode = {
+  WrongPhase: 6000,
+  TooEarly: 6001,
+  WindowClosed: 6002,
+  UnderfilledEpoch: 6003,
+  InsufficientReveals: 6004,
+  ParticipantCapReached: 6005,
+  InvalidCommitment: 6006,
+  AlreadyRevealed: 6007,
+  AllocationAlreadyClaimed: 6008,
+  AllocationNotClaimed: 6009,
+  Unauthorized: 6010,
+  SelfAction: 6011,
+  InvalidAmount: 6012,
+  WrongTargetLane: 6013,
+  InsufficientSpendableDump: 6014,
+  HeatCapacityExceeded: 6015,
+  RedirectNotReady: 6016,
+  NoGuard: 6017,
+  AlreadySettled: 6018,
+  SettlementIncomplete: 6019,
+  NotWinner: 6020,
+  RewardAlreadyClaimed: 6021,
+  BondAlreadyClaimed: 6022,
+  BondForfeited: 6023,
+  InsufficientEpochFunds: 6024,
+  InvalidNextEpoch: 6025,
+  InvalidSession: 6026,
+  InvalidRivalry: 6027,
+  CleanupNotReady: 6028,
+  PendingReward: 6029,
+  ArithmeticOverflow: 6030
+};
+
+export type GloryDumpErrorName = keyof typeof GloryDumpErrorCode;

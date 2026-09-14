@@ -1,169 +1,292 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GLORY/DUMP - The Reverse Wealth Game</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
-</head>
+    <meta
+      name="description"
+      content="GLORY/DUMP Strategy Room — the Solana reverse-wealth PvP game where the lowest weighted DUMP score wins."
+    >
+    <meta name="theme-color" content="#11120f">
+    <title>GLORY/DUMP — Strategy Room</title>
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="GLORY DUMP Strategy Room">
+        <span class="brand-sigil">G//D</span>
+        <span class="brand-copy"><strong>GLORY/DUMP</strong><small>STRATEGY ROOM</small></span>
+      </a>
+      <div class="network-cluster">
+        <span id="modeBadge" class="mode-badge">DEMO</span>
+        <span id="clusterLabel">Strategy Room demo</span>
+        <button id="connectButton" class="button button-acid" type="button">ENTER ROOM</button>
+      </div>
+    </header>
 
-<body>
-    <div class="container">
-        <header>
-            <h1>🎭 GLORY/DUMP</h1>
-            <p class="subtitle">The Reverse Wealth, Self-Draining, PvP Meme Token</p>
-            <div class="wallet-section">
-                <button id="connectWallet" class="btn btn-primary">Connect Wallet</button>
-                <span id="walletAddress" class="wallet-address"></span>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="kicker">HOW NOT TO DO MONEY // SEASON 03</p>
+          <h1>The poorest<br><em>player wins.</em></h1>
+          <p>
+            DUMP is a burden. Force-feed rivals, absorb their trash to forge defenses,
+            and ricochet attacks back at the sender. One global field means any wallet can
+            target any other; GLORY is the prize that leaves the game.
+          </p>
+        </div>
+        <div class="epoch-clock panel-cut">
+          <div class="clock-topline">
+            <span>EPOCH <strong id="epochNumber">—</strong></span>
+            <span id="phaseBadge" class="phase-badge">OFFLINE</span>
+          </div>
+          <strong id="phaseCountdown" class="countdown">—</strong>
+          <span id="phaseCaption">Connect to read the clock</span>
+          <div class="progress-track"><span id="epochProgress"></span></div>
+          <div class="clock-stats">
+            <span><b id="participantCount">—</b> players</span>
+            <span><b id="revealedCount">—</b> revealed</span>
+            <span><b id="rewardPool">—</b> GLORY</span>
+          </div>
+        </div>
+      </section>
+
+      <div id="statusBar" class="status-bar" role="status" aria-live="polite">
+        Strategy Room demo is ready. Actions here are local until a program ID is configured.
+      </div>
+
+      <section class="lifecycle-strip" aria-label="Epoch actions">
+        <div>
+          <span class="strip-label">ENTRY BOND</span>
+          <strong>0.002 SOL</strong>
+          <small>80% back for revealing + playing</small>
+        </div>
+        <button id="registerButton" class="button" type="button">01 COMMIT + JOIN</button>
+        <button id="revealButton" class="button" type="button">02 REVEAL SECRET</button>
+        <button id="claimButton" class="button" type="button">03 CLAIM CHAOS</button>
+        <div class="lifecycle-note">
+          <span>Random start</span>
+          <strong>1B—10B DUMP</strong>
+        </div>
+      </section>
+
+      <details class="operations-panel">
+        <summary>PUBLIC OPERATIONS + REVEAL RECOVERY</summary>
+        <div class="operations-grid">
+          <div class="operation-copy">
+            <strong>Keep the epoch moving</strong>
+            <small>Transitions are permissionless. Settlement processes one player per transaction and pays its caller.</small>
+          </div>
+          <button id="advanceButton" class="button" type="button">ADVANCE PHASE</button>
+          <button id="settleButton" class="button" type="button">SETTLE NEXT PLAYER</button>
+          <button id="rewardButton" class="button" type="button">CLAIM GLORY</button>
+          <button id="bondButton" class="button" type="button">RECLAIM BOND</button>
+          <button id="badgesButton" class="button" type="button">SYNC BADGES</button>
+          <div class="operation-copy secret-copy">
+            <strong>Reveal-secret recovery</strong>
+            <small>The JSON backup reveals no wallet key, but anyone holding it can reveal your committed game entropy.</small>
+          </div>
+          <button id="backupSecretButton" class="button" type="button">DOWNLOAD BACKUP</button>
+          <label class="button file-button" for="restoreSecretInput">
+            RESTORE BACKUP
+            <input id="restoreSecretInput" type="file" accept="application/json,.json">
+          </label>
+        </div>
+      </details>
+
+      <section class="strategy-layout">
+        <article class="command-deck panel-cut">
+          <div class="section-title">
+            <div>
+              <p class="kicker">YOUR WAR ROOM</p>
+              <h2 id="selfAlias">Spectator</h2>
             </div>
-        </header>
+            <span id="walletAddress" class="mono">No wallet</span>
+          </div>
 
-        <main>
-            <div class="game-stats">
-                <div class="stat-card">
-                    <h3>Your DUMP</h3>
-                    <div id="dumpBalance" class="stat-value">0 DUMP</div>
-                    <div id="dumpDecay" class="stat-subtitle">Decays 1% daily</div>
-                </div>
-
-                <div class="stat-card">
-                    <h3>Your GLORY</h3>
-                    <div id="gloryBalance" class="stat-value">0 GLORY</div>
-                    <div class="stat-subtitle">Rewards for winning</div>
-                </div>
-
-                <div class="stat-card">
-                    <h3>Your Rank</h3>
-                    <div id="userRank" class="stat-value">-</div>
-                    <div class="stat-subtitle">Lower DUMP = Higher Rank</div>
-                </div>
+          <div class="score-line">
+            <div>
+              <span>Projected score</span>
+              <strong id="selfScore">—</strong>
             </div>
-
-            <div class="epoch-info">
-                <h2>Current Epoch</h2>
-                <div class="epoch-timer">
-                    <div id="epochTimeRemaining" class="timer">30 days remaining</div>
-                    <div class="epoch-number">Epoch #<span id="currentEpoch">1</span></div>
-                </div>
-                <button id="finalizeEpoch" class="btn btn-secondary" disabled>Finalize Epoch</button>
+            <div>
+              <span>Current DUMP</span>
+              <strong id="selfBalance">—</strong>
             </div>
-
-            <div class="game-actions">
-                <div class="action-section">
-                    <h2>🎯 Dump DUMP</h2>
-                    <div class="dump-interface">
-                        <div class="input-group">
-                            <label for="dumpTarget">Target Address:</label>
-                            <input type="text" id="dumpTarget" placeholder="0x..." />
-                        </div>
-                        <div class="input-group">
-                            <label for="dumpAmount">Amount to Dump:</label>
-                            <input type="range" id="dumpSlider" min="0" max="100" value="10" />
-                            <div class="slider-value">
-                                <span id="dumpAmount">0</span> DUMP
-                            </div>
-                        </div>
-                        <div class="cooldown-info">
-                            <div>Cooldown: <span id="cooldownTime">0s</span></div>
-                            <div>Fee: <span id="transferFee">0</span> DUMP</div>
-                        </div>
-                        <button id="dumpButton" class="btn btn-danger">DUMP IT!</button>
-                    </div>
-                </div>
-
-                <div class="action-section">
-                    <h2>🦹‍♂️ Steal DUMP</h2>
-                    <div class="theft-interface">
-                        <div class="input-group">
-                            <label for="theftTarget">Victim Address:</label>
-                            <input type="text" id="theftTarget" placeholder="0x..." />
-                        </div>
-                        <div class="input-group">
-                            <label for="theftAmount">Amount to Steal:</label>
-                            <input type="range" id="theftSlider" min="0" max="100" value="10" />
-                            <div class="slider-value">
-                                <span id="theftAmount">0</span> DUMP
-                            </div>
-                        </div>
-                        <div class="theft-info">
-                            <div>Cooldown: <span id="theftCooldownTime">0s</span></div>
-                            <div>Fee: <span id="theftFee">0</span> DUMP</div>
-                            <div>Theft Cost: <span id="theftCost">0</span> DUMP</div>
-                        </div>
-                        <button id="stealButton" class="btn btn-warning">STEAL IT!</button>
-                    </div>
-                </div>
+            <div>
+              <span>Live rank</span>
+              <strong id="selfRank">—</strong>
             </div>
-
-            <div class="leaderboard">
-                <h2>🏆 Leaderboard</h2>
-                <div class="leaderboard-header">
-                    <span>Rank</span>
-                    <span>Address</span>
-                    <span>Avg DUMP Held</span>
-                </div>
-                <div id="leaderboardList" class="leaderboard-list">
-                    <div class="loading">Loading leaderboard...</div>
-                </div>
+            <div>
+              <span>GLORY wallet</span>
+              <strong id="gloryBalance">—</strong>
             </div>
+          </div>
 
-            <div class="fee-pot">
-                <h2>💰 Fee Pot</h2>
-                <div class="fee-stats">
-                    <div>Total Fees: <span id="totalFees">0</span> DUMP</div>
-                    <div>GLORY Burned: <span id="gloryBurned">0</span></div>
-                </div>
-                <button id="executeBuyback" class="btn btn-success">Execute Buyback</button>
+          <div class="heat-grid">
+            <div class="heat-meter">
+              <div><span>DUMP HEAT</span><b id="dumpHeatLabel">0%</b></div>
+              <div class="heat-track heat-orange"><span id="dumpHeatBar"></span></div>
+              <small>Recovers linearly over six hours</small>
             </div>
-
-            <div class="bug-bounty">
-                <h2>🐛 Bug Bounty Program</h2>
-                <div class="bounty-stats">
-                    <div>Bounty Reserve: <span id="bountyReserve">0</span> GLORY</div>
-                    <div>Total Reports: <span id="totalReports">0</span></div>
-                </div>
-                
-                <div class="bounty-interface">
-                    <h3>Submit Bug Report</h3>
-                    <div class="input-group">
-                        <label for="bugSeverity">Severity Level:</label>
-                        <select id="bugSeverity">
-                            <option value="0">LOW - 10K GLORY</option>
-                            <option value="1">MEDIUM - 25K GLORY</option>
-                            <option value="2">HIGH - 50K GLORY</option>
-                            <option value="3">CRITICAL - 100K GLORY</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="bugDescription">Bug Description:</label>
-                        <textarea id="bugDescription" placeholder="Describe the bug in detail..." rows="3"></textarea>
-                    </div>
-                    <div class="input-group">
-                        <label for="bugProofOfConcept">Proof of Concept (Optional):</label>
-                        <textarea id="bugProofOfConcept" placeholder="Provide code or steps to reproduce..." rows="3"></textarea>
-                    </div>
-                    <button id="submitBugReport" class="btn btn-info">Submit Report</button>
-                </div>
-
-                <div class="bug-reports">
-                    <h3>Bug Reports</h3>
-                    <button id="viewBugReports" class="btn btn-secondary">Refresh Reports</button>
-                    <div id="bugReportsContainer" class="reports-list">
-                        <div class="loading">No bug reports yet...</div>
-                    </div>
-                </div>
+            <div class="heat-meter">
+              <div><span>ABSORB HEAT</span><b id="absorbHeatLabel">0%</b></div>
+              <div class="heat-track heat-blue"><span id="absorbHeatBar"></span></div>
+              <small>Independent action channel</small>
             </div>
-        </main>
+          </div>
 
-        <footer>
-            <p>⚠️ This is a game, not an investment. The goal is to have the LEAST DUMP!</p>
-            <p>Built with ❤️ by Prime Anomaly</p>
-        </footer>
-    </div>
+          <div class="lane-heading">
+            <span>FOUR CONCURRENT LANES</span>
+            <small>Split state prevents one dogpile from locking your whole account.</small>
+          </div>
+          <div id="laneGrid" class="lane-grid"></div>
+          <div id="badgeShelf" class="badge-shelf"><span class="empty-copy">No badges yet.</span></div>
+        </article>
 
-    <script src="app.js"></script>
-</body>
+        <aside class="orders panel-cut">
+          <div class="section-title compact">
+            <div>
+              <p class="kicker">ISSUE ORDERS</p>
+              <h2 id="actionTitle">DUMP</h2>
+            </div>
+            <span class="turn-light" aria-label="Orders online"></span>
+          </div>
 
+          <div class="action-tabs" role="tablist" aria-label="Action type">
+            <button class="action-tab active" data-action="dump" role="tab" type="button">DUMP</button>
+            <button class="action-tab" data-action="absorb" role="tab" type="button">ABSORB</button>
+            <button class="action-tab" data-action="redirect" role="tab" type="button">REDIRECT</button>
+          </div>
+
+          <p id="actionDescription" class="action-description">
+            Push unlocked DUMP into the target's deterministic lane. Any armed Guard ricochets it back.
+          </p>
+
+          <label id="targetField">
+            <span>TARGET WALLET</span>
+            <button id="selectedTarget" class="target-picker" type="button">Choose from the global field ↓</button>
+          </label>
+          <label id="amountField">
+            <span>AMOUNT <small>accepts 250M, 1.2B</small></span>
+            <input id="actionAmount" inputmode="decimal" autocomplete="off" value="100M">
+          </label>
+          <div class="field-pair">
+            <label>
+              <span id="actorLaneLabel">SOURCE LANE</span>
+              <select id="actorLane">
+                <option value="0">Lane 1</option>
+                <option value="1">Lane 2</option>
+                <option value="2">Lane 3</option>
+                <option value="3">Lane 4</option>
+              </select>
+            </label>
+            <label id="targetLaneField">
+              <span>TARGET LANE</span>
+              <select id="targetLane">
+                <option value="0">Lane 1</option>
+                <option value="1">Lane 2</option>
+                <option value="2">Lane 3</option>
+                <option value="3">Lane 4</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="actionPreview" class="action-preview"></div>
+          <button id="executeButton" class="button button-order" type="button">EXECUTE DUMP</button>
+          <p class="fine-print">Every wallet approval shows the exact program instruction. DUMP itself is not a market token.</p>
+        </aside>
+      </section>
+
+      <section class="strategic-intel" aria-label="Strategic intelligence">
+        <article class="forecast-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">SCORE TRAJECTORY</p><h2>No-action forecast</h2></div>
+            <span>EXACT LANE ACCUMULATORS</span>
+          </div>
+          <div class="forecast-stats">
+            <span>NOW <b id="scoreForecastNow">—</b></span>
+            <span>AT CLOSE <b id="scoreForecastFinal">—</b></span>
+            <span>DRIFT <b id="scoreForecastDelta">—</b></span>
+          </div>
+          <svg id="scoreForecastChart" class="forecast-chart" viewBox="0 0 320 128" role="img" aria-label="Projected weighted DUMP score if the player takes no more actions"></svg>
+          <p id="scoreForecastCaption" class="intel-caption">Join the epoch to calculate a score trajectory.</p>
+        </article>
+
+        <article class="resource-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">ACTION ECONOMY</p><h2>Resource clock</h2></div>
+            <span>HEAT + LOCKS + REARM</span>
+          </div>
+          <div class="timeline-axis"><span>NOW</span><span>READY</span><span>ACTIVE END</span></div>
+          <ol id="resourceTimeline" class="resource-timeline" aria-live="polite"></ol>
+          <p class="intel-caption">Timers are calculated locally from the same constants enforced by the program.</p>
+        </article>
+
+        <article class="threat-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">RIVALRY SIGNAL</p><h2>Threat radar</h2></div>
+            <span>OBSERVED DUMP ONLY</span>
+          </div>
+          <svg id="threatGraph" class="threat-graph" viewBox="0 0 320 180" role="img" aria-label="Observed DUMP relationships around your wallet"></svg>
+          <div id="threatList" class="threat-list"></div>
+          <div id="targetDossier" class="target-dossier"><span class="empty-copy">Choose a wallet tile to inspect it.</span></div>
+        </article>
+      </section>
+
+      <section class="atlas-section">
+        <div class="section-title atlas-title">
+          <div>
+            <p class="kicker">ONE WORLD // CLICK TO TARGET</p>
+            <h2>Every wallet shares one battlefield.</h2>
+          </div>
+          <div class="atlas-controls">
+            <button class="chip active" data-filter="all" type="button">ALL</button>
+            <button class="chip" data-filter="leaders" type="button">LEADERS</button>
+            <button class="chip" data-filter="burdened" type="button">BURDENED</button>
+          </div>
+        </div>
+        <div class="atlas-legend">
+          <span><i class="legend-poor"></i> less DUMP / stronger territory</span>
+          <span><i class="legend-rich"></i> more DUMP / collapsing territory</span>
+          <span><i class="legend-armed"></i> redirect armed</span>
+          <span class="atlas-global-note">Tiles are a view, not regional servers. Any loaded wallet is targetable.</span>
+        </div>
+        <div id="territoryGrid" class="territory-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="intel-layout">
+        <article class="leaderboard panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">THE CHRONICALLY UNWEALTHY</p><h2>Live standings</h2></div>
+            <span>LOWEST SCORE WINS</span>
+          </div>
+          <div class="table-head"><span>#</span><span>PLAYER</span><span>SCORE</span><span>IMPACT</span></div>
+          <ol id="leaderboardList"></ol>
+        </article>
+
+        <article class="battle-feed panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">CHAIN INTELLIGENCE</p><h2>Battle feed</h2></div>
+            <span class="live-pip">LIVE</span>
+          </div>
+          <ol id="feedList"></ol>
+        </article>
+      </section>
+
+      <section class="mechanics-grid">
+        <article><b>01</b><h3>Late time weighs more.</h3><p>The score weight rises smoothly from 1× to 4×, but a last-minute dump cannot erase a month of holding.</p></article>
+        <article><b>02</b><h3>ABSORB creates Guard.</h3><p>Taking a rival's burden is bad for score, but half becomes capped defensive Guard and the DUMP locks for six hours.</p></article>
+        <article><b>03</b><h3>REDIRECT is one shot.</h3><p>Arm a lane, bounce up to its Guard back to the attacker, then wait fifteen minutes before rearming.</p></article>
+        <article><b>04</b><h3>Activity must matter.</h3><p>Only revealed players with a meaningful action can rank or reclaim 80% of the entry bond.</p></article>
+      </section>
+    </main>
+
+    <footer>
+      <span>GLORY/DUMP // SOLANA V3</span>
+      <span>Experimental, unaudited game software. Not an investment product.</span>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

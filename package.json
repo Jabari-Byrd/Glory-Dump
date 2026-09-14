@@ -1,45 +1,48 @@
 {
-  "name": "glory-dump-token",
-  "version": "1.0.0",
-  "description": "GLORY/DUMP: The Reverse Wealth, Self-Draining, PvP Meme Token",
-  "main": "index.js",
+  "name": "glory-dump",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "description": "GLORY/DUMP: a Solana reverse-wealth PvP strategy game",
   "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploy.js --network base",
-    "deploy:testnet": "hardhat run scripts/deploy.js --network base-testnet"
+    "dev": "vite --config vite.config.ts",
+    "build": "tsc --noEmit && vite build --config vite.config.ts",
+    "test": "cargo test --workspace && vitest run",
+    "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p glory_dump --features idl-build",
+    "check:frontend": "tsc --noEmit && vitest run && vite build --config vite.config.ts",
+    "check:scripts": "node --check scripts/initialize.mjs && node --check scripts/smoke-localnet.mjs && node --check scripts/lifecycle-localnet.mjs",
+    "check": "pnpm run check:rust && pnpm run check:frontend && pnpm run check:scripts",
+    "idl": "anchor idl build -p glory_dump -o frontend/src/idl/glory_dump.json -t frontend/src/idl/glory_dump.ts",
+    "initialize:protocol": "node scripts/initialize.mjs",
+    "smoke:localnet": "node scripts/smoke-localnet.mjs",
+    "test:lifecycle:localnet": "node scripts/lifecycle-localnet.mjs",
+    "simulate": "cargo run -p glory-dump-sim -- run",
+    "simulate:sweep": "cargo run -p glory-dump-sim -- sweep",
+    "simulate:v4": "cargo run -p glory-dump-sim -- run --v4",
+    "simulate:v4-sweep": "cargo run -p glory-dump-sim -- v4-sweep",
+    "simulate:scale": "cargo run -p glory-dump-sim -- scale"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0",
-    "@uniswap/v2-core": "^1.0.1",
-    "@uniswap/v2-periphery": "^1.1.0-beta.0"
+    "@anchor-lang/core": "1.2.0",
+    "@solana/web3.js": "1.99.0"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "chai": "^4.3.10",
-    "ethers": "^6.8.0",
-    "hardhat": "^2.19.0"
+    "typescript": "5.9.3",
+    "utf-8-validate": "5.0.10",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  },
+  "engines": {
+    "node": ">=22.12"
   },
   "keywords": [
-    "ethereum",
-    "solidity",
-    "defi",
+    "solana",
+    "anchor",
     "meme-token",
     "pvp",
-    "game",
-    "glory-dump",
-    "blockchain",
-    "cryptocurrency",
-    "tokenomics",
-    "smart-contracts",
-    "web3",
-    "nft",
-    "gaming",
-    "competitive",
-    "reverse-economics",
-    "demurrage",
-    "base-network",
-    "layer2"
+    "strategy-game",
+    "reverse-economics"
   ],
   "author": "Prime Anomaly",
   "license": "MIT"

@@ -1,0 +1,12 @@
+[package]
+name = "glory-dump-sim"
+version = "3.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic multi-strategy economic simulator for GLORY/DUMP"
+
+[dependencies]
+glory-dump-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,206 +1,149 @@
-# GLORY/DUMP Deployment Guide
+# GLORY/DUMP deployment guide
 
-This guide will walk you through deploying the GLORY/DUMP token system to Base network.
+This guide stops at localnet and Devnet. The v3 program is experimental and unaudited; mainnet deployment is outside the supported procedure.
 
-## Prerequisites
+## 1. Install the pinned toolchain
 
-1. **Node.js 18+** installed
-2. **MetaMask** or another Web3 wallet
-3. **Base testnet ETH** for deployment (get from [Base Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet))
-4. **Private key** for deployment account
+Use the versions recorded in `Anchor.toml` and `package.json`:
 
-## Setup
+```text
+Anchor CLI  1.2.0
+Solana CLI  4.1.2
+Node.js     >=22.12
+pnpm        11.19.0
+```
 
-### 1. Install Dependencies
+Then install dependencies and verify the host build:
+
 ```bash
-npm install
+pnpm install
+pnpm run check
 ```
 
-### 2. Environment Setup
-Create a `.env` file in the root directory:
+Do not treat that host build as an SBF result. A deployable release must also pass `anchor build` and validator-backed instruction tests under the pinned Solana toolchain.
+
+## 2. Create and bind the program identity
+
+The committed `Fg6Pa…` address is a development placeholder. Never deploy it as though the repository controls that key.
+
+From a clean checkout:
+
 ```bash
-PRIVATE_KEY=your_private_key_here
-BASESCAN_API_KEY=your_basescan_api_key_here  # Optional, for verification
+anchor build
+anchor keys sync
+anchor build
+pnpm run idl
+anchor keys list
 ```
 
-### 3. Compile Contracts
+The first build creates a local program keypair under the ignored `target/deploy/` directory. `anchor keys sync` writes its public address into `declare_id!` and the cluster entries in `Anchor.toml`; the second build and IDL generation bind every artifact to that address.
+
+Keep the generated program keypair private and backed up. Never commit it, paste it into an issue, or reuse a wallet that holds unrelated funds.
+
+Before continuing, confirm these all match exactly:
+
+- `anchor keys list`;
+- `declare_id!` in `programs/glory_dump/src/lib.rs`;
+- `programs.localnet` and `programs.devnet` in `Anchor.toml`;
+- `address` in `frontend/src/idl/glory_dump.json`.
+
+Any mismatch is a stop condition.
+
+## 3. Local-validator rehearsal
+
+Use a dedicated local wallet and keep the validator visible in another terminal:
+
 ```bash
-npm run compile
+solana config set --url localhost
+solana-test-validator --reset
 ```
 
-## Deployment Steps
+In the project terminal:
 
-### Step 1: Deploy to Base Testnet (Recommended First)
-
-1. **Get testnet ETH**:
-   - Visit [Base Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet)
-   - Connect your wallet and request testnet ETH
-
-2. **Deploy contracts**:
-   ```bash
-   npm run deploy:testnet
-   ```
-
-3. **Verify deployment**:
-   - Check the console output for contract addresses
-   - Verify contracts on [Base Goerli Explorer](https://goerli.basescan.org/)
-
-### Step 2: Test the System
-
-1. **Run tests**:
-   ```bash
-   npm test
-   ```
-
-2. **Manual testing**:
-   - Connect to the frontend (update contract addresses in `frontend/app.js`)
-   - Test wallet connection
-   - Test staking for participation
-   - Test DUMP transfers
-   - Test epoch finalization
-
-### Step 3: Deploy to Base Mainnet
-
-⚠️ **WARNING**: Mainnet deployment is irreversible. Test thoroughly on testnet first!
-
-1. **Get mainnet ETH**:
-   - Ensure you have enough ETH on Base mainnet for deployment
-
-2. **Deploy contracts**:
-   ```bash
-   npm run deploy
-   ```
-
-3. **Verify contracts**:
-   ```bash
-   npx hardhat verify --network base CONTRACT_ADDRESS [constructor_args]
-   ```
-
-## Contract Addresses
-
-After deployment, you'll get addresses like:
-```
-DUMP Token: 0x1234...
-GLORY Token: 0x5678...
-FeePot: 0x9abc...
-BridgeGatekeeper: 0xdef0...
+```bash
+anchor build
+anchor deploy
+export SOLANA_WALLET_PATH=/absolute/path/to/local-validator-wallet.json
+export SOLANA_RPC_URL=http://127.0.0.1:8899
+pnpm run initialize:protocol
+pnpm run smoke:localnet
 ```
 
-## Frontend Setup
+The initializer creates exactly four fixed PDAs: the protocol, capped GLORY mint, epoch 1, and epoch-1 leaderboard. It refuses to run twice. The smoke command then registers its isolated wallet and verifies the exact participant increment, 0.002 SOL bond delta, commitment, owner, and four zeroed lane accounts. It also refuses to reuse an already registered smoke wallet. Record both commands' addresses and transaction signatures.
 
-### 1. Update Contract Addresses
-Edit `frontend/app.js` and update the contract addresses:
-```javascript
-this.contractAddresses = {
-    dumpToken: '0x1234...', // Your deployed DUMP token address
-    gloryToken: '0x5678...', // Your deployed GLORY token address
-    feePot: '0x9abc...'      // Your deployed FeePot address
-};
+Configure the Strategy Room:
+
+```bash
+cp frontend/.env.example frontend/.env
 ```
 
-### 2. Deploy Frontend
-You can deploy the frontend to:
-- **Vercel**: Drag and drop the `frontend` folder
-- **GitHub Pages**: Push to a GitHub repository
-- **IPFS**: Use a service like Fleek or Pinata
+Set `VITE_PROGRAM_ID` to the synchronized address and `VITE_SOLANA_RPC_URL` to `http://127.0.0.1:8899`, then run:
 
-## Post-Deployment Checklist
+```bash
+pnpm run dev
+```
 
-### ✅ Smart Contracts
-- [ ] All contracts deployed successfully
-- [ ] Contract addresses recorded
-- [ ] Contracts verified on block explorer
-- [ ] Initial supply minted correctly
-- [ ] Fee pot initialized
+The wallet must be configured for the same local RPC. Complete the validator matrix in `docs/TESTING.md`; merely seeing the page connect is not enough.
 
-### ✅ Frontend
-- [ ] Contract addresses updated in `app.js`
-- [ ] Frontend deployed and accessible
-- [ ] Wallet connection working
-- [ ] All UI elements functional
+## 4. Devnet rehearsal
 
-### ✅ Testing
-- [ ] Staking for participation works
-- [ ] DUMP transfers with cooldowns work
-- [ ] Demurrage calculation correct
-- [ ] Epoch finalization works
-- [ ] Leaderboard updates correctly
+Use a new deployment wallet that contains only Devnet SOL. Confirm the active URL and wallet before every command:
 
-### ✅ Security
-- [ ] No admin keys in production
-- [ ] Bridge gatekeeper configured
-- [ ] Emergency pause functions tested
-- [ ] Bug bounty claimable
+```bash
+solana config set --url devnet
+solana config get
+solana balance
+anchor deploy --provider.cluster devnet
+```
 
-## Important Notes
+Initialize against Devnet without putting the keypair or a private RPC URL in source control:
 
-### 🔒 Security Considerations
-- **Never share your private key**
-- **Test thoroughly on testnet first**
-- **Verify all contract addresses**
-- **Keep deployment account secure**
+```bash
+export SOLANA_WALLET_PATH=/absolute/path/to/devnet-deployer.json
+export SOLANA_RPC_URL=https://api.devnet.solana.com
+pnpm run initialize:protocol
+```
 
-### 💰 Gas Optimization
-- Base network has low gas fees
-- Deployment should cost < $10 in ETH
-- Consider gas optimization for user transactions
+The public Devnet endpoint is suitable for a small rehearsal, not a production indexer or high-volume game. Use a dedicated RPC provider for load tests and keep credentials in `frontend/.env` or deployment secrets, never in the committed IDL or HTML.
 
-### 🌉 Bridge Integration
-- Update bridge contract address in `BridgeGatekeeper`
-- Test cross-chain transfers
-- Configure bridge permissions
+Record:
 
-## Troubleshooting
+- clean Git commit and lockfile hash;
+- Rust, Solana, Anchor, Node, and pnpm versions;
+- SBF binary SHA-256 and generated IDL SHA-256;
+- program ID, ProgramData address, and upgrade authority;
+- deploy and initialize transaction signatures;
+- protocol, GLORY mint, first epoch, and leaderboard addresses;
+- frontend build hash and exact RPC cluster;
+- all validator-test results and observed compute units.
 
-### Common Issues
+## 5. Upgrade authority and immutability
 
-1. **"Insufficient funds"**
-   - Get more testnet/mainnet ETH
+The program has no administrator instruction, but a normal deployment is still upgradeable by its deployment authority. Those are different facts.
 
-2. **"Contract verification failed"**
-   - Check constructor arguments
-   - Ensure compiler version matches
+During audited Devnet iteration, store the upgrade authority in an explicitly documented multisignature or other reviewed custody arrangement. Before any claim of immutability, independently verify the deployed binary, IDL, configuration, and incident plan. Only then can the authority be removed:
 
-3. **"Transaction failed"**
-   - Check gas limits
-   - Verify contract addresses
-   - Check user permissions
+```bash
+solana program show PROGRAM_ID
+solana program set-upgrade-authority PROGRAM_ID --final
+solana program show PROGRAM_ID
+```
 
-4. **"Frontend not connecting"**
-   - Verify contract addresses in `app.js`
-   - Check network configuration
-   - Ensure MetaMask is on correct network
+`--final` is irreversible: the program can never be upgraded or closed afterward. Do not execute it merely to satisfy the project's “no admin keys” theme.
 
-### Getting Help
+## 6. Frontend release
 
-- **Discord**: [Join our community](https://discord.gg/dumpglory)
-- **GitHub Issues**: Report bugs and issues
-- **Documentation**: Check the README for details
+Build from the same clean commit used for deployment:
 
-## Next Steps
+```bash
+pnpm run check:frontend
+pnpm run build
+```
 
-After successful deployment:
+Deploy only `dist/`. Confirm the built client contains the expected program ID and RPC, loads in demo mode when configuration is absent, and never requests a wallet signature merely to render public state.
 
-1. **Community Launch**:
-   - Announce on social media
-   - Share contract addresses
-   - Encourage community testing
+The live battle feed needs an independently operated event indexer. RPC-wide account scans are filtered by epoch, but transaction-history ingestion should not be pushed into every player's browser.
 
-2. **Liquidity Provision**:
-   - Create DUMP/ETH pool on Uniswap
-   - Create GLORY/ETH pool on Uniswap
-   - Let market set initial prices
+## Mainnet hold
 
-3. **Monitoring**:
-   - Monitor contract interactions
-   - Track epoch progress
-   - Watch for potential issues
-
-4. **Iteration**:
-   - Gather community feedback
-   - Plan future improvements
-   - Consider additional features
-
----
-
-**Remember**: This is an experimental token system. Deploy responsibly and always test thoroughly! 🎭
+There is no supported mainnet command. Mainnet requires all gates in `README.md`, `SECURITY.md`, and `docs/TESTING.md`, including an independent audit, economic simulations, SBF/validator evidence, randomness resolution, load testing, legal review, and a deliberate upgrade-authority decision.

@@ -11,3 +11,4 @@ crate-type = ["lib"]
 
 [features]
 default = []
+test-fast = []

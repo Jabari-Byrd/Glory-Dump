@@ -31,7 +31,8 @@
           <h1>The poorest<br><em>player wins.</em></h1>
           <p>
             DUMP is a burden. Force-feed rivals, absorb their trash to forge defenses,
-            and ricochet attacks back at the sender. GLORY is the prize that leaves the game.
+            and ricochet attacks back at the sender. One global field means any wallet can
+            target any other; GLORY is the prize that leaves the game.
           </p>
         </div>
         <div class="epoch-clock panel-cut">
@@ -163,8 +164,8 @@
           </p>
 
           <label id="targetField">
-            <span>TARGET TERRITORY</span>
-            <button id="selectedTarget" class="target-picker" type="button">Choose from the atlas ↓</button>
+            <span>TARGET WALLET</span>
+            <button id="selectedTarget" class="target-picker" type="button">Choose from the global field ↓</button>
           </label>
           <label id="amountField">
             <span>AMOUNT <small>accepts 250M, 1.2B</small></span>
@@ -197,11 +198,47 @@
         </aside>
       </section>
 
+      <section class="strategic-intel" aria-label="Strategic intelligence">
+        <article class="forecast-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">SCORE TRAJECTORY</p><h2>No-action forecast</h2></div>
+            <span>EXACT LANE ACCUMULATORS</span>
+          </div>
+          <div class="forecast-stats">
+            <span>NOW <b id="scoreForecastNow">—</b></span>
+            <span>AT CLOSE <b id="scoreForecastFinal">—</b></span>
+            <span>DRIFT <b id="scoreForecastDelta">—</b></span>
+          </div>
+          <svg id="scoreForecastChart" class="forecast-chart" viewBox="0 0 320 128" role="img" aria-label="Projected weighted DUMP score if the player takes no more actions"></svg>
+          <p id="scoreForecastCaption" class="intel-caption">Join the epoch to calculate a score trajectory.</p>
+        </article>
+
+        <article class="resource-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">ACTION ECONOMY</p><h2>Resource clock</h2></div>
+            <span>HEAT + LOCKS + REARM</span>
+          </div>
+          <div class="timeline-axis"><span>NOW</span><span>READY</span><span>ACTIVE END</span></div>
+          <ol id="resourceTimeline" class="resource-timeline" aria-live="polite"></ol>
+          <p class="intel-caption">Timers are calculated locally from the same constants enforced by the program.</p>
+        </article>
+
+        <article class="threat-panel panel-cut">
+          <div class="section-title compact">
+            <div><p class="kicker">RIVALRY SIGNAL</p><h2>Threat radar</h2></div>
+            <span>OBSERVED DUMP ONLY</span>
+          </div>
+          <svg id="threatGraph" class="threat-graph" viewBox="0 0 320 180" role="img" aria-label="Observed DUMP relationships around your wallet"></svg>
+          <div id="threatList" class="threat-list"></div>
+          <div id="targetDossier" class="target-dossier"><span class="empty-copy">Choose a wallet tile to inspect it.</span></div>
+        </article>
+      </section>
+
       <section class="atlas-section">
         <div class="section-title atlas-title">
           <div>
-            <p class="kicker">INVERSE ATLAS // CLICK TO TARGET</p>
-            <h2>Every wallet is a territory.</h2>
+            <p class="kicker">ONE WORLD // CLICK TO TARGET</p>
+            <h2>Every wallet shares one battlefield.</h2>
           </div>
           <div class="atlas-controls">
             <button class="chip active" data-filter="all" type="button">ALL</button>
@@ -213,6 +250,7 @@
           <span><i class="legend-poor"></i> less DUMP / stronger territory</span>
           <span><i class="legend-rich"></i> more DUMP / collapsing territory</span>
           <span><i class="legend-armed"></i> redirect armed</span>
+          <span class="atlas-global-note">Tiles are a view, not regional servers. Any loaded wallet is targetable.</span>
         </div>
         <div id="territoryGrid" class="territory-grid" aria-live="polite"></div>
       </section>

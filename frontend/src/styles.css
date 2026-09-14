@@ -473,6 +473,12 @@ main {
   gap: 18px;
 }
 
+.strategy-layout > *,
+.strategic-intel > *,
+.intel-layout > * {
+  min-width: 0;
+}
+
 .command-deck,
 .orders,
 .leaderboard,
@@ -824,6 +830,269 @@ select:focus,
   line-height: 1.5;
 }
 
+.strategic-intel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.forecast-panel,
+.resource-panel,
+.threat-panel {
+  min-height: 440px;
+  padding: clamp(20px, 2.4vw, 30px);
+}
+
+.strategic-intel .section-title {
+  min-height: 58px;
+  align-items: flex-start;
+}
+
+.strategic-intel .section-title h2 {
+  font-size: clamp(23px, 2.2vw, 34px);
+}
+
+.strategic-intel .section-title > span {
+  max-width: 120px;
+  text-align: right;
+}
+
+.forecast-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 22px 0 14px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.forecast-stats span {
+  display: flex;
+  min-width: 0;
+  padding: 10px;
+  background: #0e100c;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  flex-direction: column;
+}
+
+.forecast-stats b {
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--acid);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.forecast-chart,
+.threat-graph {
+  display: block;
+  width: 100%;
+  border: 1px solid #2d3029;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+    linear-gradient(rgb(255 255 255 / 3%) 1px, transparent 1px),
+    #0c0e0b;
+  background-size: 32px 32px;
+}
+
+.forecast-grid-line {
+  stroke: #353930;
+  stroke-dasharray: 3 4;
+}
+
+.forecast-area {
+  fill: rgb(217 255 79 / 8%);
+}
+
+.forecast-line {
+  fill: none;
+  stroke: var(--acid);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.forecast-point {
+  fill: var(--ink);
+  stroke: var(--acid);
+  stroke-width: 2;
+}
+
+.svg-label {
+  fill: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+}
+
+.intel-caption {
+  margin: 12px 0 0;
+  color: #777c6e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 24px 0 10px;
+  color: #686d60;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+}
+
+.resource-timeline {
+  min-height: 260px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resource-timeline li {
+  padding: 11px 0;
+  border-bottom: 1px solid #292c25;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.timeline-row span {
+  color: #b9bead;
+}
+
+.timeline-row b {
+  color: var(--blue);
+  font-size: 9px;
+}
+
+.timeline-track {
+  height: 4px;
+  margin-top: 8px;
+  background: #080907;
+}
+
+.timeline-track span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--violet), var(--blue));
+}
+
+.timeline-track span.ready {
+  background: var(--acid);
+}
+
+.threat-graph {
+  height: 180px;
+  margin: 20px 0 10px;
+}
+
+.threat-edge {
+  opacity: 0.72;
+  stroke: var(--orange);
+}
+
+.threat-edge.outgoing {
+  stroke: var(--blue);
+}
+
+.threat-edge.mutual {
+  stroke: var(--violet);
+  stroke-dasharray: 5 3;
+}
+
+.threat-node {
+  fill: #161914;
+  stroke: var(--orange);
+  stroke-width: 1.5;
+}
+
+.threat-node.self {
+  fill: #202719;
+  stroke: var(--acid);
+  stroke-width: 2;
+}
+
+.threat-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.threat-chip {
+  min-width: 104px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  background: #0e100c;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  text-align: left;
+}
+
+.threat-chip strong,
+.threat-chip span {
+  display: block;
+}
+
+.threat-chip strong {
+  overflow: hidden;
+  margin-bottom: 4px;
+  color: var(--paper);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threat-chip:hover,
+.threat-chip.selected {
+  border-color: var(--acid);
+}
+
+.target-dossier {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.target-dossier > span {
+  display: flex;
+  min-height: 44px;
+  justify-content: center;
+  padding: 8px;
+  background: #0e100c;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  flex-direction: column;
+}
+
+.target-dossier > span:first-child,
+.target-dossier > .dossier-wide,
+.target-dossier > .empty-copy {
+  grid-column: 1 / -1;
+}
+
+.target-dossier b {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--paper);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
 .atlas-section {
   margin: clamp(70px, 10vw, 132px) 0 54px;
 }
@@ -851,11 +1120,17 @@ select:focus,
 
 .atlas-legend {
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 22px;
   margin-bottom: 12px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 9px;
+}
+
+.atlas-global-note {
+  margin-left: auto;
+  color: var(--paper);
 }
 
 .atlas-legend i {
@@ -1143,6 +1418,14 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .strategic-intel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .threat-panel {
+    grid-column: 1 / -1;
+  }
+
   .hero {
     gap: 38px;
   }
@@ -1213,6 +1496,14 @@ footer {
     grid-template-columns: 1fr 1fr;
   }
 
+  .strategic-intel {
+    grid-template-columns: 1fr;
+  }
+
+  .threat-panel {
+    grid-column: auto;
+  }
+
   .lane-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1224,6 +1515,12 @@ footer {
 
   .territory-grid {
     grid-template-columns: repeat(4, minmax(64px, 1fr));
+  }
+
+  .table-head,
+  #leaderboardList li {
+    grid-template-columns: 30px minmax(0, 1fr) minmax(64px, 0.6fr) minmax(48px, 0.35fr);
+    gap: 6px;
   }
 
   .atlas-legend {

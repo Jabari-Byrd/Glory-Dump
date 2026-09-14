@@ -14,9 +14,11 @@ This repository is the v3 Solana/Anchor rewrite. The previous Solidity/Base prot
 
 ## Status
 
-The game rules, Anchor instruction surface, generated IDL, wallet client, playable demo, and Strategy Room interface are implemented. Host Rust tests, strict TypeScript checks, frontend tests, IDL generation, Clippy, the production web build, and an optimized SBF build under Solana 4.1.2 pass. A loopback validator bootstrap smoke also loaded the program and created the protocol, first epoch, leaderboard, and six-decimal GLORY mint through the real Token Program.
+The v3 game rules, Anchor instruction surface, generated IDL, wallet client, playable demo, and Strategy Room interface are implemented. Host Rust tests, strict TypeScript checks, frontend tests, IDL generation, Clippy, the production web build, and optimized SBF builds under Solana 4.1.2 pass. A managed 21-wallet local-validator suite now completes a representative three-epoch lifecycle, and a deterministic Rust bot simulator exercises the committed rules and adversarial strategy mixtures.
 
-It is still **experimental, unaudited, and not mainnet-ready**. The full local-validator lifecycle/failure suite, adversarial economic simulation, independent security audit, and legal review remain release gates. A successful build and bootstrap transaction are not evidence that GLORY has investment value or that the game economy is manipulation-resistant.
+A simulator-only v4 candidate now tests equal five-day score chapters, banked chapter stamina, scheduled batches, a target-wide ABSORB relief budget, coalition economics, and exact populations up to 100,000. A separate analytical command models a one-world target namespace through seven billion players. None of those v4 mechanics or the aggregate-settlement architecture is in the Anchor program yet.
+
+It is still **experimental, unaudited, and not mainnet-ready**. Maximum-scale contention, the remaining validator edge matrix, held-out economic experiments, randomness hardening, independent security audit, and legal review remain release gates. A successful lifecycle or bot run is not evidence that GLORY has investment value or that the game economy is manipulation-resistant.
 
 ## The game loop
 
@@ -64,7 +66,7 @@ Guard and armed-lane state are deliberately public in this version. Solana accou
 
 ## Ranking and GLORY
 
-The lowest 5% of eligible players win, rounded up and capped at 128 winners in a 2,560-player room. Exact score ties prefer:
+The current v3 program awards the lowest 5% of eligible players, rounded up and capped at 128 winners in its 2,560-player implementation bound. Exact score ties prefer:
 
 1. more capped impact across actions;
 2. more distinct opponents;
@@ -90,14 +92,19 @@ Protocol PDA ── controls the capped GLORY mint
 
 Four lane accounts let unrelated attacks on one player land concurrently when Solana schedules them against different writable accounts. Population-dependent work is split into player-created registration accounts, one-player settlement calls, bounded winner storage, and pull claims. Historical feeds are emitted as events and belong in an indexer; they are not stored forever in one global account.
 
-See [game design](docs/GAME_DESIGN.md), [architecture](docs/ARCHITECTURE.md), [rewrite notes](docs/V3_REWRITE.md), and [testing gates](docs/TESTING.md) for the full contracts.
+The project no longer treats disconnected regional rooms as the desired scaling answer. The research target is one globally addressable field with scheduled signed intents and authenticated aggregate settlement. The current 2,560-player program cannot provide that merely by raising a constant. See [one-world arena research](docs/GLOBAL_ARENA.md) for the capacity model, trust boundary, and required gates.
+
+See [game design](docs/GAME_DESIGN.md), [architecture](docs/ARCHITECTURE.md), [rewrite notes](docs/V3_REWRITE.md), [testing gates](docs/TESTING.md), and [bot simulation](docs/SIMULATION.md) for the full contracts and current evidence.
 
 ## Strategy Room
 
 The frontend is a responsive strategy interface rather than an address textbox. It includes:
 
-- a clickable inverse territory atlas;
+- a clickable one-world burden field whose tiles are views, not regional servers;
 - projected standings, burden, Heat, four lanes, Guard, locks, and badges;
+- an exact no-action score curve and weighted action consequence preview;
+- a unified Heat, absorbed-DUMP lock, and REDIRECT rearm clock;
+- an observed-rivalry radar and selected-target dossier;
 - exact action previews and human inputs such as `250M` or `1.2B`;
 - commitment-secret download and verified restore;
 - permissionless phase, settlement, reward, and bond controls;
@@ -133,6 +140,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 pnpm run check:frontend
 pnpm run idl
+cargo run -p glory-dump-sim -- run --population 100 --epochs 100
+cargo run -p glory-dump-sim -- sweep --epochs 100
+cargo run -p glory-dump-sim -- run --v4 --population 100 --epochs 100
+cargo run -p glory-dump-sim -- v4-sweep --epochs 100
+cargo run -p glory-dump-sim -- scale
 ```
 
 The generated TypeScript and JSON IDL files under `frontend/src/idl/` are committed so the wallet client is bound to the reviewed instruction schema. Regenerate them after any program interface change.
@@ -144,11 +156,11 @@ Deployment is deliberately a separate, fail-loud procedure; see [DEPLOYMENT.md](
 Do not deploy this version with real-value expectations. Before mainnet consideration:
 
 1. replace the placeholder program ID, synchronize every artifact, and reproduce the SBF build;
-2. pass local-validator lifecycle, claim, cleanup, and failure-path tests;
-3. run the planned bot/Sybil/collusion simulations and retune parameters from evidence;
+2. complete maximum-room, contention, and remaining validator edge tests;
+3. run fresh-seed bot/Sybil/collusion confirmation before changing parameters;
 4. obtain independent Solana-program and frontend audits;
 5. resolve commit/reveal selective-withholding risk;
-6. test RPC/indexer behavior and account contention at intended room size;
+6. test RPC/indexer behavior and account contention at the v3 bound, then separately prototype the one-world proof/availability design;
 7. publish incident response and private disclosure procedures;
 8. obtain jurisdiction-specific legal review for entry bonds, prizes, and public trading.
 

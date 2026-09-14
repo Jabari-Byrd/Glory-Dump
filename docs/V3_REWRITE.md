@@ -133,12 +133,12 @@ Hardhat configuration, Solidity contracts/tests, ethers frontend code, Base depl
 ## What remains intentionally unresolved
 
 1. Commit/reveal still permits costly selective withholding and must not be described as unbiased randomness.
-2. The optimized SBF build and a real local-validator bootstrap transaction pass under Solana 4.1.2; the full multi-wallet lifecycle and failure-path validator suite remains a release gate.
-3. Bot-driven economic testing has not begun; the user explicitly reserved it for after this implementation commit.
+2. The optimized SBF build and a representative managed 21-wallet, three-epoch local-validator lifecycle both pass under Solana 4.1.2. Maximum-room, contention, and the remaining failure-path matrix remain release gates.
+3. Bot-driven economic testing has begun. Corrected canonical and adversarial runs flag coalition-controller dominance, starting-tier advantage, and final-window turnover; formula ablations and fresh-seed confirmation remain open, and no parameter has been promoted from the exploratory set.
 4. The live feed needs a fork-aware event indexer.
-5. Parameter choices are reasoned starting points, not simulation-validated equilibria.
+5. Parameter choices are reasoned starting points, not simulation-validated equilibria; Guard-cap and Heat-duration changes alone did not remove the first warnings.
 6. GLORY liquidity, listings, price, and integrations are external and unspecified.
 7. Session delegates need adversarial automation tests before use with unattended bots.
 8. Independent program/frontend audits, reproducible deployment, incident response, and legal review remain mandatory.
 
-The correct designation for this commit is **implemented Solana development prototype, quality and economics unproven**.
+The correct designation is **implemented Solana development prototype, mechanically exercised, balance quality and economics unproven**.

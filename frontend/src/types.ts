@@ -23,6 +23,8 @@ export interface LaneView {
   redirectArmed: boolean;
   redirectReadyAt: number;
   redirectedVolume: bigint;
+  cumulativeWeighted: bigint;
+  lastCheckpointAt: number;
 }
 
 export interface PlayerView {
@@ -72,6 +74,19 @@ export interface FeedItem {
   target?: string;
   amount?: bigint;
   message: string;
+}
+
+export interface ScoreForecastPoint {
+  timestamp: number;
+  score: bigint;
+}
+
+export interface ThreatView {
+  address: string;
+  incomingDump: bigint;
+  outgoingDump: bigint;
+  incomingActions: number;
+  outgoingActions: number;
 }
 
 export interface StrategySnapshot {

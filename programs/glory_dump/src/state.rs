@@ -28,7 +28,12 @@ pub struct Protocol {
 }
 
 impl Protocol {
+    #[cfg(not(feature = "test-fast"))]
     pub const VERSION: u16 = 3;
+    // The high bit makes an accelerated test binary visibly incompatible with
+    // production clients and prevents accidental deployment as the real game.
+    #[cfg(feature = "test-fast")]
+    pub const VERSION: u16 = 0x8003;
     pub const DATA_LEN: usize = 2 + 8 + 32 + 8 + 1;
     pub const SPACE: usize = 8 + Self::DATA_LEN;
 }

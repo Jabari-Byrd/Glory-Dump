@@ -1,4 +1,12 @@
-import type { HeatView, PlayerView } from "./types";
+import type {
+  EpochView,
+  FeedItem,
+  HeatView,
+  LaneView,
+  PlayerView,
+  ScoreForecastPoint,
+  ThreatView,
+} from "./types";
 
 export const DUMP_TIER_SIZE = 1_000_000_000n;
 export const LANE_COUNT = 4;
@@ -54,11 +62,120 @@ export function projectedWeightedScore(
 ): bigint {
   const duration = BigInt(Math.max(0, epochEnd - epochStart));
   if (duration === 0n) return 0n;
-  const from = BigInt(clamp(lastCheckpointAt, epochStart, epochEnd) - epochStart);
-  const to = BigInt(clamp(now, epochStart, epochEnd) - epochStart);
+  const checkpoint = clamp(lastCheckpointAt, epochStart, epochEnd);
+  const from = BigInt(checkpoint - epochStart);
+  const to = BigInt(Math.max(checkpoint, clamp(now, epochStart, epochEnd)) - epochStart);
   const area =
     (to - from) * duration * duration + to * to * to - from * from * from;
   return (cumulativeWeighted + balance * area) / (2n * duration * duration * duration);
+}
+
+export function projectedPlayerScore(
+  lanes: LaneView[],
+  timestamp: number,
+  epochStart: number,
+  epochEnd: number,
+): bigint {
+  const duration = BigInt(Math.max(0, epochEnd - epochStart));
+  if (duration === 0n) return 0n;
+  const cumulative = lanes.reduce(
+    (total, lane) => total + projectedCumulativeWeighted(
+      lane.cumulativeWeighted,
+      lane.balance,
+      lane.lastCheckpointAt,
+      timestamp,
+      epochStart,
+      epochEnd,
+    ),
+    0n,
+  );
+  return cumulative / (2n * duration * duration * duration);
+}
+
+export function noActionScoreForecast(
+  player: PlayerView,
+  epoch: EpochView,
+  now: number,
+  pointCount = 7,
+): ScoreForecastPoint[] {
+  if (epoch.activeEndsAt <= epoch.activeStartsAt) return [];
+  const start = clamp(now, epoch.activeStartsAt, epoch.activeEndsAt);
+  const count = Math.max(2, Math.min(24, Math.floor(pointCount)));
+  if (start === epoch.activeEndsAt || player.settled) {
+    return [{ timestamp: start, score: player.projectedScore }];
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const timestamp = index === count - 1
+      ? epoch.activeEndsAt
+      : start + Math.floor(((epoch.activeEndsAt - start) * index) / (count - 1));
+    return {
+      timestamp,
+      score: projectedPlayerScore(
+        player.lanes,
+        timestamp,
+        epoch.activeStartsAt,
+        epoch.activeEndsAt,
+      ),
+    };
+  });
+}
+
+export function scoreDeltaForBalanceChange(
+  balanceDelta: bigint,
+  now: number,
+  epochStart: number,
+  epochEnd: number,
+): bigint {
+  const duration = BigInt(Math.max(0, epochEnd - epochStart));
+  if (duration === 0n || balanceDelta === 0n) return 0n;
+  const from = BigInt(clamp(now, epochStart, epochEnd) - epochStart);
+  const area = weightedAreaScaled(from, duration, duration);
+  const magnitude = (balanceDelta < 0n ? -balanceDelta : balanceDelta) * area
+    / (2n * duration * duration * duration);
+  return balanceDelta < 0n ? -magnitude : magnitude;
+}
+
+export function threatViews(feed: FeedItem[], selfAddress: string): ThreatView[] {
+  const threats = new Map<string, ThreatView>();
+  const getThreat = (address: string): ThreatView => {
+    const existing = threats.get(address);
+    if (existing) return existing;
+    const created = {
+      address,
+      incomingDump: 0n,
+      outgoingDump: 0n,
+      incomingActions: 0,
+      outgoingActions: 0,
+    };
+    threats.set(address, created);
+    return created;
+  };
+  for (const event of feed) {
+    if (event.kind !== "dump" || !event.actor || !event.target || !event.amount) continue;
+    if (event.target === selfAddress && event.actor !== selfAddress) {
+      const threat = getThreat(event.actor);
+      threat.incomingDump += event.amount;
+      threat.incomingActions += 1;
+    }
+    if (event.actor === selfAddress && event.target !== selfAddress) {
+      const threat = getThreat(event.target);
+      threat.outgoingDump += event.amount;
+      threat.outgoingActions += 1;
+    }
+  }
+  return [...threats.values()].sort((left, right) => {
+    const leftVolume = left.incomingDump + left.outgoingDump;
+    const rightVolume = right.incomingDump + right.outgoingDump;
+    if (leftVolume !== rightVolume) return leftVolume > rightVolume ? -1 : 1;
+    return left.address.localeCompare(right.address);
+  });
+}
+
+export function heatClearAt(heat: HeatView, now: number): number {
+  if (heat.units === 0) return now;
+  const clearAt = heat.updatedAt
+    + Math.ceil((heat.units * HEAT_RECOVERY_SECONDS) / HEAT_CAP);
+  return Math.max(now, clearAt);
 }
 
 export function rankPlayers(players: PlayerView[]): PlayerView[] {
@@ -195,6 +312,26 @@ function formatScaled(value: bigint, scale: bigint, decimals: number): string {
 
 function divCeil(value: bigint, divisor: bigint): bigint {
   return (value + divisor - 1n) / divisor;
+}
+
+function projectedCumulativeWeighted(
+  cumulativeWeighted: bigint,
+  balance: bigint,
+  lastCheckpointAt: number,
+  now: number,
+  epochStart: number,
+  epochEnd: number,
+): bigint {
+  const duration = BigInt(Math.max(0, epochEnd - epochStart));
+  if (duration === 0n) return 0n;
+  const checkpoint = clamp(lastCheckpointAt, epochStart, epochEnd);
+  const from = BigInt(checkpoint - epochStart);
+  const to = BigInt(Math.max(checkpoint, clamp(now, epochStart, epochEnd)) - epochStart);
+  return cumulativeWeighted + balance * weightedAreaScaled(from, to, duration);
+}
+
+function weightedAreaScaled(from: bigint, to: bigint, duration: bigint): bigint {
+  return (to - from) * duration * duration + to * to * to - from * from * from;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

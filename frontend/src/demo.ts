@@ -4,6 +4,7 @@ import {
   heatAt,
   heatCost,
   minimumAction,
+  projectedPlayerScore,
   rankPlayers,
 } from "./rules";
 import type {
@@ -76,7 +77,19 @@ export class DemoGateway implements GameGateway {
   }
 
   async refresh(): Promise<StrategySnapshot> {
-    return structuredClone(this.snapshot);
+    const copy = structuredClone(this.snapshot);
+    const now = Math.floor(Date.now() / 1000);
+    for (const player of copy.players) {
+      if (!player.settled) {
+        player.projectedScore = projectedPlayerScore(
+          player.lanes,
+          now,
+          copy.epoch.activeStartsAt,
+          copy.epoch.activeEndsAt,
+        );
+      }
+    }
+    return copy;
   }
 
   async act(request: ActionRequest): Promise<string> {
@@ -112,9 +125,11 @@ export class DemoGateway implements GameGateway {
       const cost = heatCost(amount, actor.startingAllocation);
       const currentHeat = heatAt(actor.dumpHeat, now);
       if (currentHeat + cost > HEAT_CAP) throw new Error("DUMP heat is full");
-      if (actorLane.balance - actorLane.lockedAmount < amount) {
+      if (spendable(actorLane, now) < amount) {
         throw new Error("Not enough unlocked DUMP in that lane");
       }
+      checkpointLane(actorLane, now, this.snapshot);
+      checkpointLane(targetLane, now, this.snapshot);
       const redirected = targetLane.redirectArmed ? amount < targetLane.guard ? amount : targetLane.guard : 0n;
       const landed = amount - redirected;
       actorLane.balance = actorLane.balance - amount + redirected;
@@ -128,6 +143,8 @@ export class DemoGateway implements GameGateway {
       actor.dumpHeat = { units: currentHeat + cost, updatedAt: now };
       actor.balance = sumLanes(actor.lanes);
       target.balance = sumLanes(target.lanes);
+      refreshProjectedScore(actor, now, this.snapshot);
+      refreshProjectedScore(target, now, this.snapshot);
       actor.meaningfulActions += 1;
       actor.impactPpm += amount * 1_000_000n / actor.startingAllocation;
       this.unshiftFeed({
@@ -145,9 +162,11 @@ export class DemoGateway implements GameGateway {
     const cost = heatCost(amount, actor.startingAllocation);
     const currentHeat = heatAt(actor.absorbHeat, now);
     if (currentHeat + cost > HEAT_CAP) throw new Error("ABSORB heat is full");
-    if (targetLane.balance - targetLane.lockedAmount < amount) {
+    if (spendable(targetLane, now) < amount) {
       throw new Error("The target lane does not have enough unlocked DUMP");
     }
+    checkpointLane(actorLane, now, this.snapshot);
+    checkpointLane(targetLane, now, this.snapshot);
     targetLane.balance -= amount;
     actorLane.balance += amount;
     actorLane.lockedAmount += amount;
@@ -157,6 +176,8 @@ export class DemoGateway implements GameGateway {
     actor.absorbHeat = { units: currentHeat + cost, updatedAt: now };
     actor.balance = sumLanes(actor.lanes);
     target.balance = sumLanes(target.lanes);
+    refreshProjectedScore(actor, now, this.snapshot);
+    refreshProjectedScore(target, now, this.snapshot);
     actor.meaningfulActions += 1;
     actor.impactPpm += amount * 1_000_000n / actor.startingAllocation;
     this.unshiftFeed({
@@ -245,6 +266,7 @@ function makePlayer(alias: string, index: number, now: number, isSelf = false): 
   const tier = BigInt((index * 7 + 3) % 10 + 1);
   const start = tier * DUMP_TIER_SIZE;
   const balance = start * BigInt(18 + (index * 13) % 95) / 100n;
+  const projected = balance * BigInt(68 + (index * 5) % 29) / 100n;
   const laneBalance = balance / 4n;
   const remainder = balance % 4n;
   const guardedLane = index % 4;
@@ -257,8 +279,9 @@ function makePlayer(alias: string, index: number, now: number, isSelf = false): 
     redirectArmed: guardedLane === laneIndex && index % 3 === 0,
     redirectReadyAt: 0,
     redirectedVolume: index % 3 === 0 ? start / 20n : 0n,
+    cumulativeWeighted: projected * 2n * BigInt(30 * 86_400) ** 3n / 4n,
+    lastCheckpointAt: now,
   }));
-  const projected = balance * BigInt(68 + (index * 5) % 29) / 100n;
   return {
     address: isSelf ? SELF_ADDRESS : demoAddress(index),
     alias,
@@ -286,6 +309,8 @@ function makePlayer(alias: string, index: number, now: number, isSelf = false): 
 
 function initialFeed(now: number, players: PlayerView[]): FeedItem[] {
   return [
+    feed("dump", now - 18, players[3], players[7], 125_000_000n, "Debt Wizard pressure-tested Quiet Peasant's western lane."),
+    feed("dump", now - 29, players[7], players[0], 210_000_000n, "Quiet Peasant sent a burden parcel to Paper Crown."),
     feed("dump", now - 41, players[9], players[2], 340_000_000n, "Reverse Whale force-fed Trash Oracle."),
     feed("redirect", now - 73, players[4], players[6], 0n, "Small Fry ricocheted a raid into Exit Liquidity."),
     feed("absorb", now - 118, players[1], players[5], 90_000_000n, "Zero Baron absorbed a burden and forged Guard."),
@@ -326,6 +351,44 @@ function demoAddress(index: number): string {
 
 function sumLanes(lanes: LaneView[]): bigint {
   return lanes.reduce((total, lane) => total + lane.balance, 0n);
+}
+
+function spendable(lane: LaneView, now: number): bigint {
+  return now >= lane.lockedUntil ? lane.balance : lane.balance - lane.lockedAmount;
+}
+
+function checkpointLane(lane: LaneView, now: number, snapshot: StrategySnapshot): void {
+  const { activeStartsAt, activeEndsAt } = snapshot.epoch;
+  const duration = BigInt(Math.max(0, activeEndsAt - activeStartsAt));
+  if (duration > 0n) {
+    const checkpoint = clamp(lane.lastCheckpointAt, activeStartsAt, activeEndsAt);
+    const current = Math.max(checkpoint, clamp(now, activeStartsAt, activeEndsAt));
+    const from = BigInt(checkpoint - activeStartsAt);
+    const to = BigInt(current - activeStartsAt);
+    const area = (to - from) * duration * duration + to * to * to - from * from * from;
+    lane.cumulativeWeighted += lane.balance * area;
+    lane.lastCheckpointAt = current;
+  } else {
+    lane.lastCheckpointAt = clamp(now, activeStartsAt, activeEndsAt);
+  }
+  if (now >= lane.lockedUntil) lane.lockedAmount = 0n;
+}
+
+function refreshProjectedScore(
+  player: PlayerView,
+  now: number,
+  snapshot: StrategySnapshot,
+): void {
+  player.projectedScore = projectedPlayerScore(
+    player.lanes,
+    now,
+    snapshot.epoch.activeStartsAt,
+    snapshot.epoch.activeEndsAt,
+  );
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
 }
 
 function min(left: bigint, right: bigint): bigint {

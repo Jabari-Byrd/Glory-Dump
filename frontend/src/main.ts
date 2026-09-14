@@ -8,13 +8,17 @@ import {
   formatDump,
   formatGlory,
   heatAt,
+  heatClearAt,
   heatCost,
   minimumAction,
+  noActionScoreForecast,
   parseDumpInput,
   rankPlayers,
+  scoreDeltaForBalanceChange,
   secondsUntilHeatAvailable,
   shortAddress,
   territoryLevel,
+  threatViews,
 } from "./rules";
 import type {
   ActionKind,
@@ -130,7 +134,7 @@ class StrategyRoom {
       this.setStatus(
         this.snapshot.mode === "live"
           ? "Live Solana state loaded."
-          : "Demo room loaded. Click any territory, then issue an order.",
+          : "Global-field demo loaded. Click any wallet tile, then issue an order.",
         "success",
       );
     } catch (error) {
@@ -238,6 +242,7 @@ class StrategyRoom {
     this.renderEpoch();
     this.renderSelf();
     this.renderOrders();
+    this.renderThreatView();
     this.renderAtlas();
     this.renderLeaderboard();
     this.renderFeed();
@@ -292,6 +297,8 @@ class StrategyRoom {
       this.setHeat("dump", heatAt(self.dumpHeat, now));
       this.setHeat("absorb", heatAt(self.absorbHeat, now));
     }
+    this.renderScoreForecast(now);
+    this.renderResourceTimeline(now);
   }
 
   private renderSelf(): void {
@@ -394,7 +401,7 @@ class StrategyRoom {
     const target = this.targetPlayer();
     text(
       "selectedTarget",
-      target ? `${target.alias} // ${shortAddress(target.address, 6)}` : "Choose from the atlas ↓",
+      target ? `${target.alias} // ${shortAddress(target.address, 6)}` : "Choose from the global field ↓",
     );
   }
 
@@ -414,6 +421,7 @@ class StrategyRoom {
         previewLine("AVAILABLE GUARD", formatDump(lane.guard)),
         previewLine("CURRENT STATE", lane.redirectArmed ? "ALREADY ARMED" : now >= lane.redirectReadyAt ? "READY" : formatCountdown(lane.redirectReadyAt, now), lane.guard === 0n),
         previewLine("ON HIT", `Up to ${formatDump(lane.guard)} returns to the attacker.`),
+        previewLine("SCORE EFFECT", "±0 until an incoming attack resolves"),
       );
       return;
     }
@@ -428,14 +436,272 @@ class StrategyRoom {
     const heat = this.action === "dump" ? self.dumpHeat : self.absorbHeat;
     const cost = heatCost(amount, self.startingAllocation);
     const wait = secondsUntilHeatAvailable(heat, now, amount, self.startingAllocation);
+    const redirectRisk = this.action === "dump"
+      && target.lanes.some((candidate) => candidate.redirectArmed);
     const effect = this.action === "dump"
-      ? `You −${formatDump(amount)} // ${target.alias} +${formatDump(amount)}`
+      ? redirectRisk
+        ? `Attempt ${formatDump(amount)} // ${target.alias} receives only the remainder after Guard`
+        : `You −${formatDump(amount)} // ${target.alias} +${formatDump(amount)}`
       : `You +${formatDump(amount)} locked // ${target.alias} −${formatDump(amount)}`;
+    const scoreDelta = scoreDeltaForBalanceChange(
+      this.action === "dump" ? -amount : amount,
+      now,
+      this.snapshot?.epoch.activeStartsAt ?? now,
+      this.snapshot?.epoch.activeEndsAt ?? now,
+    );
     preview.append(
       previewLine("PROJECTED MOVE", effect),
+      previewLine(
+        redirectRisk ? "DELTA IF NONE RETURNS" : "NO-ACTION SCORE DELTA",
+        `${formatSignedDump(scoreDelta)} if the balance change lasts to close`,
+      ),
       previewLine("HEAT COST", cost > 10_000 ? "OVER CAP" : `${(cost / 100).toFixed(1)}%`, cost > 10_000),
       previewLine("EARLIEST EXECUTION", wait === 0 ? "NOW" : Number.isFinite(wait) ? `IN ${formatCountdown(now + wait, now)}` : "IMPOSSIBLE", wait > 0),
       previewLine("MINIMUM MOVE", formatDump(minimum), amount < minimum),
+    );
+    if (redirectRisk) {
+      preview.append(previewLine(
+        "RICOCHET RISK",
+        "Target has public armed Guard; the deterministic hit lane is resolved at execution.",
+        true,
+      ));
+    }
+  }
+
+  private renderScoreForecast(now: number): void {
+    const chart = element<SVGSVGElement>("scoreForecastChart");
+    chart.replaceChildren();
+    const self = this.selfPlayer();
+    if (!this.snapshot || !self) {
+      text("scoreForecastNow", "—");
+      text("scoreForecastFinal", "—");
+      text("scoreForecastDelta", "—");
+      text("scoreForecastCaption", "Join the epoch to calculate a score trajectory.");
+      return;
+    }
+    const points = noActionScoreForecast(self, this.snapshot.epoch, now, 9);
+    if (points.length === 0) {
+      text("scoreForecastCaption", "A forecast is unavailable before an active interval exists.");
+      return;
+    }
+    const first = points[0]!;
+    const last = points.at(-1)!;
+    text("scoreForecastNow", formatDump(first.score));
+    text("scoreForecastFinal", formatDump(last.score));
+    text("scoreForecastDelta", formatSignedDump(last.score - first.score));
+
+    const left = 15;
+    const right = 305;
+    const top = 16;
+    const bottom = 105;
+    const scores = points.map((point) => point.score);
+    const minimum = scores.reduce((value, score) => score < value ? score : value);
+    const maximum = scores.reduce((value, score) => score > value ? score : value);
+    const range = maximum - minimum || 1n;
+    const coordinates = points.map((point, index) => {
+      const x = points.length === 1
+        ? (left + right) / 2
+        : left + ((right - left) * index) / (points.length - 1);
+      const scaled = Number(((point.score - minimum) * 10_000n) / range) / 10_000;
+      const y = bottom - scaled * (bottom - top);
+      return { x, y };
+    });
+    for (const y of [top, (top + bottom) / 2, bottom]) {
+      chart.append(svgNode("line", {
+        x1: String(left), y1: String(y), x2: String(right), y2: String(y), class: "forecast-grid-line",
+      }));
+    }
+    if (coordinates.length > 1) {
+      const path = coordinates.map((point, index) =>
+        `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+      chart.append(
+        svgNode("path", {
+          d: `${path} L${right},${bottom} L${left},${bottom} Z`,
+          class: "forecast-area",
+        }),
+        svgNode("path", { d: path, class: "forecast-line" }),
+      );
+    }
+    for (const point of coordinates) {
+      chart.append(svgNode("circle", {
+        cx: point.x.toFixed(2), cy: point.y.toFixed(2), r: "3", class: "forecast-point",
+      }));
+    }
+    chart.append(
+      svgText(left, 120, "NOW", "start"),
+      svgText(right, 120, "ACTIVE CLOSE", "end"),
+    );
+    const drift = last.score - first.score;
+    text(
+      "scoreForecastCaption",
+      self.settled
+        ? "Final score is settled and cannot move."
+        : `If nobody changes your balance, the current burden adds ${formatSignedDump(drift)} by close. Incoming DUMP and future orders are not predicted.`,
+    );
+  }
+
+  private renderResourceTimeline(now: number): void {
+    const list = element<HTMLOListElement>("resourceTimeline");
+    list.replaceChildren();
+    const self = this.selfPlayer();
+    if (!this.snapshot || !self) {
+      const item = document.createElement("li");
+      item.append(emptyMessage("Join an epoch to expose Heat, lock, and Guard timers."));
+      list.append(item);
+      return;
+    }
+    const resources: { label: string; at: number; state?: string }[] = [
+      { label: "DUMP Heat", at: heatClearAt(self.dumpHeat, now) },
+      { label: "ABSORB Heat", at: heatClearAt(self.absorbHeat, now) },
+    ];
+    for (const lane of self.lanes) {
+      if (lane.lockedAmount > 0n && lane.lockedUntil > now) {
+        resources.push({
+          label: `Lane ${lane.index + 1} unlock · ${formatDump(lane.lockedAmount)}`,
+          at: lane.lockedUntil,
+        });
+      }
+      if (lane.redirectArmed) {
+        resources.push({
+          label: `Lane ${lane.index + 1} REDIRECT`,
+          at: now,
+          state: `ARMED · ${formatDump(lane.guard)} Guard`,
+        });
+      } else if (lane.guard > 0n && lane.redirectReadyAt > now) {
+        resources.push({ label: `Lane ${lane.index + 1} rearm`, at: lane.redirectReadyAt });
+      }
+    }
+    resources.sort((left, right) => left.at - right.at || left.label.localeCompare(right.label));
+    const horizon = Math.max(1, this.snapshot.epoch.activeEndsAt - now);
+    for (const resource of resources) {
+      const item = document.createElement("li");
+      const row = document.createElement("div");
+      row.className = "timeline-row";
+      const label = document.createElement("span");
+      label.textContent = resource.label;
+      const value = document.createElement("b");
+      value.textContent = resource.state
+        ?? (resource.at <= now
+          ? "READY NOW"
+          : resource.at > this.snapshot.epoch.activeEndsAt
+            ? `AFTER CLOSE · ${formatCountdown(resource.at, now)}`
+            : formatCountdown(resource.at, now));
+      row.append(label, value);
+      const track = document.createElement("div");
+      track.className = "timeline-track";
+      const fill = document.createElement("span");
+      const progress = Math.max(0, Math.min(100, ((resource.at - now) * 100) / horizon));
+      fill.style.width = `${resource.at <= now ? 2 : progress}%`;
+      if (resource.at <= now) fill.className = "ready";
+      track.append(fill);
+      item.append(row, track);
+      list.append(item);
+    }
+  }
+
+  private renderThreatView(): void {
+    const graph = element<SVGSVGElement>("threatGraph");
+    const list = element("threatList");
+    const dossier = element("targetDossier");
+    graph.replaceChildren();
+    list.replaceChildren();
+    dossier.replaceChildren();
+    const self = this.selfPlayer();
+    if (!this.snapshot || !self) {
+      graph.append(svgText(160, 92, "NO PLAYER SIGNAL", "middle"));
+      list.append(emptyMessage("Join an epoch to build rivalry intelligence."));
+      dossier.append(emptyMessage("Choose a wallet tile to inspect it."));
+      return;
+    }
+
+    const threats = threatViews(this.snapshot.feed, self.address).slice(0, 6);
+    const center = { x: 160, y: 90 };
+    const maxVolume = threats.reduce(
+      (maximum, threat) => {
+        const volume = threat.incomingDump + threat.outgoingDump;
+        return volume > maximum ? volume : maximum;
+      },
+      1n,
+    );
+    threats.forEach((threat, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / Math.max(1, threats.length);
+      const point = { x: center.x + Math.cos(angle) * 110, y: center.y + Math.sin(angle) * 62 };
+      const volume = threat.incomingDump + threat.outgoingDump;
+      const width = 1 + Number((volume * 4_000n) / maxVolume) / 1_000;
+      const direction = threat.incomingDump > 0n && threat.outgoingDump > 0n
+        ? "mutual"
+        : threat.outgoingDump > 0n ? "outgoing" : "incoming";
+      graph.append(svgNode("line", {
+        x1: String(center.x), y1: String(center.y), x2: String(point.x), y2: String(point.y),
+        class: `threat-edge ${direction}`, "stroke-width": width.toFixed(2),
+      }));
+    });
+    threats.forEach((threat, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / Math.max(1, threats.length);
+      const point = { x: center.x + Math.cos(angle) * 110, y: center.y + Math.sin(angle) * 62 };
+      const player = this.snapshot?.players.find((candidate) => candidate.address === threat.address);
+      graph.append(
+        svgNode("circle", {
+          cx: String(point.x), cy: String(point.y), r: "10", class: "threat-node",
+        }),
+        svgText(point.x, point.y + (point.y < center.y ? -15 : 21), player?.alias ?? shortAddress(threat.address), "middle"),
+      );
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `threat-chip${threat.address === this.selectedTarget ? " selected" : ""}`;
+      const name = document.createElement("strong");
+      name.textContent = player?.alias ?? shortAddress(threat.address);
+      const volume = document.createElement("span");
+      volume.textContent = `IN ${formatDump(threat.incomingDump, true)} · OUT ${formatDump(threat.outgoingDump, true)}`;
+      chip.append(name, volume);
+      chip.addEventListener("click", () => {
+        if (!player || player.isSelf) return;
+        this.selectedTarget = player.address;
+        this.renderSelectedTarget();
+        this.renderActionPreview();
+        this.renderAtlas();
+        this.renderThreatView();
+      });
+      list.append(chip);
+    });
+    graph.append(
+      svgNode("circle", {
+        cx: String(center.x), cy: String(center.y), r: "15", class: "threat-node self",
+      }),
+      svgText(center.x, center.y + 3, "YOU", "middle"),
+    );
+    if (threats.length === 0) {
+      graph.append(svgText(
+        160,
+        145,
+        this.snapshot.mode === "live" ? "INDEXED HISTORY NOT CONNECTED" : "NO OBSERVED DUMP YET",
+        "middle",
+      ));
+      list.append(emptyMessage(
+        this.snapshot.mode === "live"
+          ? "Live accounts do not contain historical events; attach the optional indexer for rivalry history."
+          : "DUMP exchanges involving you will appear here.",
+      ));
+    }
+
+    const target = this.targetPlayer();
+    if (!target) {
+      dossier.append(emptyMessage("Choose a wallet tile to inspect it."));
+      return;
+    }
+    const observed = threats.find((threat) => threat.address === target.address);
+    dossier.append(
+      dossierCell("TARGET", `${target.alias} // ${shortAddress(target.address, 5)}`, true),
+      dossierCell("PROJECTED SCORE", formatDump(target.projectedScore)),
+      dossierCell("CURRENT BURDEN", formatDump(target.balance)),
+      dossierCell("MEANINGFUL ACTIONS", target.meaningfulActions.toLocaleString("en-US")),
+      dossierCell("ARMED LANES", target.lanes.filter((lane) => lane.redirectArmed).length.toString()),
+      dossierCell(
+        "OBSERVED EXCHANGE",
+        observed
+          ? `IN ${formatDump(observed.incomingDump, true)} / OUT ${formatDump(observed.outgoingDump, true)}`
+          : "NO DIRECT DUMP IN FEED",
+      ),
     );
   }
 
@@ -468,6 +734,7 @@ class StrategyRoom {
         this.renderSelectedTarget();
         this.renderActionPreview();
         this.renderAtlas();
+        this.renderThreatView();
         document.querySelector(".orders")?.scrollIntoView({ behavior: "smooth", block: "center" });
       });
       const rankLabel = document.createElement("span");
@@ -575,10 +842,10 @@ class StrategyRoom {
   }
 }
 
-function element<T extends HTMLElement = HTMLElement>(id: string): T {
+function element<T extends Element = HTMLElement>(id: string): T {
   const found = document.getElementById(id);
   if (!found) throw new Error(`Missing required element #${id}`);
-  return found as T;
+  return found as unknown as T;
 }
 
 function text(id: string, value: string): void {
@@ -605,6 +872,46 @@ function previewLine(label: string, value: string, warning = false): HTMLElement
   result.textContent = value;
   row.append(name, result);
   return row;
+}
+
+function dossierCell(label: string, value: string, wide = false): HTMLElement {
+  const cell = document.createElement("span");
+  if (wide) cell.className = "dossier-wide";
+  const name = document.createElement("small");
+  name.textContent = label;
+  const result = document.createElement("b");
+  result.textContent = value;
+  cell.append(name, result);
+  return cell;
+}
+
+function svgNode<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attributes: Record<string, string>,
+): SVGElementTagNameMap[K] {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+  return node;
+}
+
+function svgText(
+  x: number,
+  y: number,
+  value: string,
+  anchor: "start" | "middle" | "end",
+): SVGTextElement {
+  const node = svgNode("text", {
+    x: String(x),
+    y: String(y),
+    class: "svg-label",
+    "text-anchor": anchor,
+  });
+  node.textContent = value;
+  return node;
+}
+
+function formatSignedDump(value: bigint): string {
+  return value > 0n ? `+${formatDump(value)}` : value < 0n ? formatDump(value) : "±0";
 }
 
 function emptyMessage(message: string): HTMLElement {

@@ -55,7 +55,7 @@ GLORY is a conventional SPL Token mint with six decimals. Its authority is the `
 
 Fixed accounts are allocated to their exact Borsh size and covered by serialization tests. The leaderboard reserves 7,573 bytes including its discriminator, below the 10 KiB threshold. Player-created rent remains material but is recoverable through explicit close instructions.
 
-The 2,560-player cap keeps the five-percent winner set at or below 128 and bounds total settlement work for one room. Future scaling should open independent rooms rather than silently increasing one global winner account.
+The 2,560-player v3 cap keeps the five-percent winner set at or below 128 and bounds total settlement work for the current Anchor implementation. It must not be silently increased. The intended research direction is now one global target namespace—not regional or MMO-style rooms—using scheduled signed intents, off-chain data availability, and authenticated aggregate settlement. That is a separate architecture and is not implemented by the current program; see [GLOBAL_ARENA.md](GLOBAL_ARENA.md).
 
 ## PDA identities
 

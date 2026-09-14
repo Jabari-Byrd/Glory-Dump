@@ -11,11 +11,17 @@
     "test": "cargo test --workspace && vitest run",
     "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check -p glory_dump --features idl-build",
     "check:frontend": "tsc --noEmit && vitest run && vite build --config vite.config.ts",
-    "check:scripts": "node --check scripts/initialize.mjs && node --check scripts/smoke-localnet.mjs",
+    "check:scripts": "node --check scripts/initialize.mjs && node --check scripts/smoke-localnet.mjs && node --check scripts/lifecycle-localnet.mjs",
     "check": "pnpm run check:rust && pnpm run check:frontend && pnpm run check:scripts",
     "idl": "anchor idl build -p glory_dump -o frontend/src/idl/glory_dump.json -t frontend/src/idl/glory_dump.ts",
     "initialize:protocol": "node scripts/initialize.mjs",
-    "smoke:localnet": "node scripts/smoke-localnet.mjs"
+    "smoke:localnet": "node scripts/smoke-localnet.mjs",
+    "test:lifecycle:localnet": "node scripts/lifecycle-localnet.mjs",
+    "simulate": "cargo run -p glory-dump-sim -- run",
+    "simulate:sweep": "cargo run -p glory-dump-sim -- sweep",
+    "simulate:v4": "cargo run -p glory-dump-sim -- run --v4",
+    "simulate:v4-sweep": "cargo run -p glory-dump-sim -- v4-sweep",
+    "simulate:scale": "cargo run -p glory-dump-sim -- scale"
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.0",

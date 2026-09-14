@@ -706,6 +706,15 @@ name = "glory-dump-core"
 version = "3.0.0"
 
 [[package]]
+name = "glory-dump-sim"
+version = "3.0.0"
+dependencies = [
+ "glory-dump-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "glory_dump"
 version = "3.0.0"
 dependencies = [

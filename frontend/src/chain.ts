@@ -20,7 +20,7 @@ import type { GloryDump } from "./idl/glory_dump";
 import {
   bytesToHex,
   commitmentFor,
-  projectedWeightedScore,
+  projectedPlayerScore,
 } from "./rules";
 import type {
   ActionRequest,
@@ -90,6 +90,11 @@ export class SolanaGateway implements GameGateway {
 
     const [protocolAddress] = this.protocolPda();
     const protocol = await program.account.protocol.fetch(protocolAddress);
+    if (protocol.version !== 3) {
+      throw new Error(
+        `Unsupported protocol ruleset ${protocol.version}. Refusing to connect to a test-only or incompatible deployment.`,
+      );
+    }
     const epochNumber = toBigInt(protocol.currentEpoch);
     const [epochAddress] = this.epochPda(epochNumber);
     const epochRaw = await program.account.epoch.fetch(epochAddress);
@@ -127,17 +132,12 @@ export class SolanaGateway implements GameGateway {
       const balance = lanes.reduce((total, lane) => total + lane.balance, 0n);
       const projectedScore = account.settled
         ? toBigInt(account.finalScore)
-        : laneRows.reduce(
-              (total, row) => total + projectedWeightedScore(
-                toBigInt(row.account.cumulativeWeighted),
-                toBigInt(row.account.balance),
-                toNumber(row.account.lastCheckpointAt),
-                now,
-                epoch.activeStartsAt,
-                epoch.activeEndsAt,
-              ),
-              0n,
-            );
+        : projectedPlayerScore(
+            lanes,
+            now,
+            epoch.activeStartsAt,
+            epoch.activeEndsAt,
+          );
       return {
         address,
         alias: aliasFor(address),
@@ -651,6 +651,8 @@ function mapLane(account: LaneAccount): LaneView {
     redirectArmed: account.redirectArmed,
     redirectReadyAt: toNumber(account.redirectReadyAt),
     redirectedVolume: toBigInt(account.redirectedVolume),
+    cumulativeWeighted: toBigInt(account.cumulativeWeighted),
+    lastCheckpointAt: toNumber(account.lastCheckpointAt),
   };
 }
 
@@ -664,6 +666,8 @@ function emptyLane(index: number): LaneView {
     redirectArmed: false,
     redirectReadyAt: 0,
     redirectedVolume: 0n,
+    cumulativeWeighted: 0n,
+    lastCheckpointAt: 0,
   };
 }
 

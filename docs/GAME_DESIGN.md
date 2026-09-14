@@ -193,6 +193,27 @@ Badges carry no GLORY bonus and cannot override standings:
 
 They make losing histories legible and give the community bragging rights without turning side quests into pay-to-win stat bonuses.
 
+## V4 simulator candidate
+
+The committed program still follows every v3 rule above. The following candidate exists only in `glory-dump-sim` so pacing and coalition ideas can be rejected cheaply before they touch accounts or the IDL:
+
+- divide the 30-day active phase into six five-day chapters;
+- weight every chapter equally instead of increasing time weight from `1x` to `4x`;
+- replace six-hour Heat with independent DUMP and ABSORB chapter stamina;
+- calculate each channel's allowance from `15% * starting DUMP + 85% * 5.5B`, reducing the absolute-capacity range to 4.825B–6.175B and the 10B-to-1B ratio from 10:1 to about 1.28:1;
+- grant 100% of that blended basis per chapter and carry at most one unused chapter;
+- let each scheduled window accept up to four pre-signed intents, then use seed-committed resolution order rather than network-arrival priority;
+- cap the DUMP that all helpers combined may ABSORB away from one target during a chapter at 25% of that target's starting allocation;
+- report an explicit 100,000-lamport coordination-cost assumption for every coalition helper epoch.
+
+The action budget is independent of polling frequency. Checking hourly may improve target selection, but it does not refill stamina. A player who skips one chapter can bank it; older unused capacity expires. The intended client model is a chapter playbook: a player can sign conditional targets and fallbacks, leave, and let later global windows resolve them. The simulator currently models the actions and deterministic batch order, not wallet-side conditional syntax or proof settlement.
+
+The target-wide ABSORB budget is deliberately narrow. It does not give a dogpiled wallet extra outgoing power: Sybil helpers cannot multiply how much burden they pull off their controller. A separate target-wide incoming-DUMP cap was implemented as an ablation and left disabled in the candidate. Stress bots manufactured that “protection” by dogpiling their own controller, exactly the exploit the design wanted to avoid.
+
+The current candidate is not balanced or promotion-ready. Four 100-epoch mixed runs on fresh seeds put corrected last-three-day counterfactual winner turnover between 19.0% and 21.8%, down from 87.0% in the canonical reference, and the pure wait-until-late bot won zero times. The full final five-day chapter still replaced 66.4%–70.4% of the projected winners, so the endgame remains meaningful.
+
+The same evidence rejects any claim that the candidate is finished. In the mixed population, strongest-to-weakest nonzero starting-tier win rates were 42.7x–86.5x: the near-fixed stamina basis overcorrects and leaves the largest starting burdens with too little escape capacity under strategic pressure. Four separate 300-epoch random-only runs were much less extreme but still ranged from 2.95x to 3.84x. Small-packet DUMP won at 2.20x–2.69x the population rate, while sacrificial and bribed controllers won 7%–13% of their epochs. Self-dogpile controllers won none, but their helper groups remained overrepresented. Those are remaining mechanic questions, not acceptable final bands.
+
 ## Parameters reserved for simulation
 
 The next test phase should challenge, not assume, the current values:
@@ -208,3 +229,5 @@ The next test phase should challenge, not assume, the current values:
 - information advantage from the public atlas and feed.
 
 No constant should be promoted merely because it sounds fair. The bot phase should measure dominant strategies, player recovery after dogpiles, action diversity, idle equilibria, Sybil profitability, winner turnover, transaction contention, and GLORY inflation before retuning anything.
+
+The v3 baseline and first v4 ablations now exist. V4 materially reduces pure last-window play and pull-based controller coalitions, but the starting lottery and small-packet/sacrificial-sink behavior are still outside the desired bands. No simulator-only rule has been copied into the program. See [SIMULATION.md](SIMULATION.md) for the measurements and [GLOBAL_ARENA.md](GLOBAL_ARENA.md) for the one-world scaling boundary.

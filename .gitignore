@@ -4,6 +4,7 @@ node_modules/
 dist/
 coverage/
 *.lcov
+simulation-output/
 
 # Anchor, Cargo, and Solana output
 target/

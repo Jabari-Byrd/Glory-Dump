@@ -60,9 +60,23 @@ anchor build
 anchor test --validator legacy
 ```
 
-Current implementation evidence (2026-09-12): `cargo-build-sbf` from Solana CLI 4.1.2 produced a 603 KiB optimized program (`SHA-256 5aea16462acc7e84e5474800abf965fab806d9c859a322d016c0c02dccab734d`). A fresh loopback validator loaded that exact binary at the declared development address, and the checked-in initializer successfully created the 59-byte Protocol account, 244-byte Epoch account, epoch-1 Leaderboard, and GLORY mint. The mint reported six decimals, zero initial supply, Protocol-PDA mint authority, and no freeze authority. `pnpm run smoke:localnet` then executed a real registration and asserted the exact participant-count increment, 2,000,000-lamport bond delta, commitment and owner, plus four correctly indexed zero-balance lane PDAs.
+Current implementation evidence (2026-09-12): `cargo-build-sbf` from Solana CLI 4.1.2 produced a current 603 KiB production-rules program (`SHA-256 04cc35409a0d0212bdaef43d540d0fb30bebf700576f41e0c808cef48339ad44`). A fresh loopback validator loaded the program at the declared development address. The initializer and registration smoke create the Protocol, epoch, leaderboard, six-decimal GLORY mint, player, exact 2,000,000-lamport bond, and four lane PDAs through real runtime instructions.
 
-That is a bootstrap smoke, not a completed Gate C. The multi-wallet lifecycle and adversarial failure matrix below remains to be automated and passed after a real program ID is synchronized.
+`scripts/lifecycle-localnet.mjs` adds a managed, 21-wallet end-to-end suite. It uses an SBF build with `test-fast`, whose protocol version has the high bit set (`0x8003`) so the production client rejects it. Production constants are unchanged. The suite waits through shortened real clock windows and verifies 20 reveals and eligible players, one penalized withholder, seeded allocations, DUMP/ABSORB/REDIRECT, Guard and locks, session delegation, atomic failure cases, exact global DUMP conservation, all-player settlement, GLORY and SOL claims, rent cleanup, a cancelled successor, and sequential opening through epoch 3. It also records per-instruction fee and compute-unit totals. The passing test-only SBF was 603 KiB (`SHA-256 00aeb36b0adba847f682ddc44fdb95f916e854d90865661c1f6f7ea6f12c1819`).
+
+The latest clean fresh-ledger run conserved 101B DUMP and minted exactly 44,700 GLORY, equal to the committed reward pool. Average observed compute was about 47.6k CU per registration, 10.1k per reveal, 25.8k per allocation claim, 29.3k per eligibility DUMP, and 44.5k per player settlement. These are local-validator observations, not Mainnet capacity guarantees.
+
+```bash
+cargo-build-sbf \
+  --manifest-path programs/glory_dump/Cargo.toml \
+  --sbf-out-dir /private/tmp/glory-dump-sbf-test-fast \
+  --features test-fast
+
+GLORY_DUMP_TEST_PROGRAM_SO=/private/tmp/glory-dump-sbf-test-fast/glory_dump.so \
+  pnpm run test:lifecycle:localnet
+```
+
+This is a substantial Gate C lifecycle pass, not the complete release matrix. Maximum-room registration, late/unclaimed score parity, repeated-pair caps, reordered settlement, bond sweeping, canonical GLORY transfer, and every close-safety edge below still need dedicated validator cases after the placeholder program ID is replaced.
 
 The validator suite must create independent wallets and verify at least:
 
@@ -142,11 +156,10 @@ The four-lane design is successful only if measured scheduler/retry behavior imp
 
 ## Gate E — bot-driven economic simulation
 
-This is the next design phase after the implementation commit, not evidence already claimed by it.
-
-Build a deterministic simulator that imports or faithfully mirrors `glory-dump-core` and model heterogeneous agents:
+`crates/glory-dump-sim` is a deterministic simulator that imports `glory-dump-core` and models heterogeneous agents:
 
 - random and inactive baselines;
+- small-packet scattering as a non-coalition action-granularity control;
 - greedy lowest-score dumping;
 - leader hunters using public standings;
 - quiet “small fry” that avoid visibility;
@@ -155,15 +168,31 @@ Build a deterministic simulator that imports or faithfully mirrors `glory-dump-c
 - reciprocal alliances and rotating coalitions;
 - sacrificial Sybil fleets;
 - self-dogpile attempts;
-- bribery driven by an external GLORY price;
-- keeper participation under changing SOL fees;
+- bribed-coalition controllers, with optional GLORY-price net sensitivity;
 - reveal-withholding coalitions.
+
+Run the canonical mixed baseline and the standard adversarial matrix with:
+
+```bash
+cargo run -p glory-dump-sim -- run --population 100 --epochs 100 \
+  --output /private/tmp/glory-dump-baseline.json
+cargo run -p glory-dump-sim -- sweep --epochs 100 \
+  --output /private/tmp/glory-dump-sweep.json
+cargo run -p glory-dump-sim -- run --v4 --population 100 --epochs 100 \
+  --output /private/tmp/glory-dump-v4.json
+cargo run -p glory-dump-sim -- v4-sweep --epochs 100 \
+  --output /private/tmp/glory-dump-v4-sweep.json
+cargo run -p glory-dump-sim -- scale \
+  --output /private/tmp/glory-dump-global-scale.json
+```
+
+The simulator checks DUMP and reward conservation on every epoch, labels any parameter override noncanonical, and reports action fees, bond losses, optional hypothetical GLORY value, strategy/tier outcomes, Guard utilization, targeting, chapter/endgame turnover, stamina and target-cap failures, coalition coordination assumptions, and GLORY concentration. Reproducibility, conservation, canonical-rule parity, legacy-config loading, inactive/withholding eligibility, chapter scoring, stamina carry, target-wide caps, scheduled-batch order, corrected coarse-cadence turnover, global-scale arithmetic, and experimental labeling have unit tests.
 
 Sweep seeds, population, starting allocations, action latency, RPC failure, information delay, number of Sybils, and every tunable parameter listed in `GAME_DESIGN.md`.
 
 Primary outputs:
 
-- winner concentration and turnover by strategy;
+- winner concentration and turnover by strategy, including coalition-controller outcomes separately from sacrificial helpers;
 - correlation between starting tier and win probability;
 - Gini/concentration of GLORY emission;
 - fraction of inactive/degenerate epochs;
@@ -177,6 +206,12 @@ Primary outputs:
 - sensitivity to public versus delayed standings.
 
 Predeclare acceptable bands before tuning. Use held-out seeds to confirm any parameter change; otherwise the simulator becomes a machine for overfitting one invented population.
+
+See [SIMULATION.md](SIMULATION.md) for the bot definitions, predeclared exploratory bands, commands, and unmodeled boundaries. Validator contention, rent, keeper profitability, indexer behavior, real liquidity, and human behavior remain outside this pure model and keep Gate E open.
+
+Current corrected evidence rejects both the committed v3 balance and automatic promotion of the v4 candidate. V4 reduced final-three-day counterfactual winner turnover from `87.0%` in the canonical reference to `19.0%–21.8%` across four fresh 100-epoch mixed runs, and reduced sacrificial-controller wins from `33%` to `7%–10%`. It also produced a severe `42.7x–86.5x` nonzero starting-tier spread in those mixed rooms and a `2.20x–2.69x` small-packet advantage. An incoming-DUMP cap was rejected because a 30%-Sybil fleet could manufacture the protection for its own controller. No simulator-only rule has been copied into the Anchor program.
+
+The analytical `scale` command is not Gate D evidence. At seven billion players, its default one-action-per-three-days scenario still yields about 27,006 signed intents/s. Aggregating 10,000 intents per settlement reduces the modeled on-chain count to about 2.70 settlements/s, but no prover, verifier, sequencer, forced-inclusion path, or data-availability system exists. A one-world architecture must pass those implementation and adversarial gates before replacing v3; see [GLOBAL_ARENA.md](GLOBAL_ARENA.md).
 
 ## Gate F — independent review and release
 

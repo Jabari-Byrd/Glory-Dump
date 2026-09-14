@@ -21,8 +21,15 @@ use glory_dump_core::{
     REGISTRATION_SECONDS, REVEAL_SECONDS, SETTLEMENT_BOUNTY_LAMPORTS,
 };
 
+#[cfg(not(feature = "test-fast"))]
 const BOND_CLAIM_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[cfg(feature = "test-fast")]
+const BOND_CLAIM_SECONDS: i64 = 60;
+
+#[cfg(not(feature = "test-fast"))]
 const MAX_SESSION_SECONDS: i64 = 24 * 60 * 60;
+#[cfg(feature = "test-fast")]
+const MAX_SESSION_SECONDS: i64 = 30;
 const MAX_SESSION_ACTIONS: u16 = 100;
 
 const COMMITMENT_DOMAIN: &[u8] = b"glory-dump-commitment-v3";

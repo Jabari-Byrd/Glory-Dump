@@ -10,16 +10,32 @@ pub const DUMP_TIER_COUNT: u64 = 10;
 pub const MAX_STARTING_DUMP: u64 = DUMP_TIER_SIZE * DUMP_TIER_COUNT;
 
 pub const LANE_COUNT: usize = 4;
-// A five-percent winner set fits in one sub-10 KiB Anchor account. Larger
-// events can be introduced later as independent rooms without putting every
-// settlement behind one oversized account allocation.
+// The v3 five-percent winner set fits in one sub-10 KiB Anchor account. A
+// future one-world arena needs a different root/proof settlement architecture;
+// silently raising this bound would put every settlement behind one oversized
+// account and is not a scaling plan.
 pub const MAX_PARTICIPANTS: u32 = 2_560;
 pub const MAX_WINNERS: usize = 128;
 
+#[cfg(not(feature = "test-fast"))]
 pub const REGISTRATION_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const REGISTRATION_SECONDS: i64 = 30;
+
+#[cfg(not(feature = "test-fast"))]
 pub const REVEAL_SECONDS: i64 = 12 * 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const REVEAL_SECONDS: i64 = 12;
+
+#[cfg(not(feature = "test-fast"))]
 pub const PLANNING_SECONDS: i64 = 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const PLANNING_SECONDS: i64 = 5;
+
+#[cfg(not(feature = "test-fast"))]
 pub const ACTIVE_SECONDS: i64 = 30 * 24 * 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const ACTIVE_SECONDS: i64 = 45;
 
 pub const REGISTRATION_BOND_LAMPORTS: u64 = 2_000_000;
 pub const BOND_REFUND_BPS: u64 = 8_000;
@@ -41,12 +57,22 @@ pub const MIN_EMISSION_MULTIPLIER_MILLI: u64 = 250;
 pub const MAX_EMISSION_MULTIPLIER_MILLI: u64 = 4_000;
 
 pub const HEAT_CAP: u32 = 10_000;
+#[cfg(not(feature = "test-fast"))]
 pub const HEAT_RECOVERY_SECONDS: i64 = 6 * 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const HEAT_RECOVERY_SECONDS: i64 = 4;
 pub const MIN_ACTION_BPS: u64 = 10;
 pub const GUARD_CONVERSION_BPS: u64 = 5_000;
 pub const TOTAL_GUARD_CAP_BPS: u64 = 2_500;
+#[cfg(not(feature = "test-fast"))]
 pub const ABSORB_LOCK_SECONDS: i64 = 6 * 60 * 60;
+#[cfg(feature = "test-fast")]
+pub const ABSORB_LOCK_SECONDS: i64 = 4;
+
+#[cfg(not(feature = "test-fast"))]
 pub const REDIRECT_REARM_SECONDS: i64 = 15 * 60;
+#[cfg(feature = "test-fast")]
+pub const REDIRECT_REARM_SECONDS: i64 = 2;
 pub const PAIR_IMPACT_CAP_PPM: u64 = 500_000;
 
 pub const BADGE_ESCAPE_ARTIST: u64 = 1 << 0;

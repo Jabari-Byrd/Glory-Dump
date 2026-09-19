@@ -514,6 +514,11 @@ async function runLifecycle(payer, payerFundedAtGenesis) {
     "leaderboard must be sorted from lowest score upward",
   );
 
+  // Open the successor before touching epoch-1 claims. This exercises the
+  // old-epoch claim path instead of relying on the current-epoch client view.
+  const epochTwo = await openNextEpoch(connection, payer, 1n);
+  signatures.push(await observeTransaction(connection, epochTwo.signature, "open_next_epoch"));
+
   const winner = players.find((player) => player.publicKey.equals(leaderboard.entries[0].player));
   assert(winner, "winner key must belong to a registered wallet");
   const nonWinner = players.slice(0, REVEALED_COUNT).find((player) => !player.publicKey.equals(winner.publicKey));
@@ -601,8 +606,6 @@ async function runLifecycle(payer, payerFundedAtGenesis) {
   signatures.push(await observeTransaction(connection, closeKeeperSignature, "close_keeper_credit"));
   assert.equal(await connection.getAccountInfo(keeperCredit, "confirmed"), null);
 
-  const epochTwo = await openNextEpoch(connection, payer, 1n);
-  signatures.push(await observeTransaction(connection, epochTwo.signature, "open_next_epoch"));
   const cancellationWallet = Keypair.generate();
   await fundWallets(connection, payer, [cancellationWallet], 100_000_000);
   const cancellationSecret = deterministicSecret(cancellationWallet.publicKey, 2n, 0);

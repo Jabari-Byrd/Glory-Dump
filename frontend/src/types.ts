@@ -57,6 +57,7 @@ export interface EpochView {
   phaseEndsAt: number;
   activeStartsAt: number;
   activeEndsAt: number;
+  bondClaimEndsAt: number;
   participantCount: number;
   revealedCount: number;
   settledCount: number;
@@ -64,6 +65,30 @@ export interface EpochView {
   winnerCount: number;
   playerRewardPool: bigint;
   keeperRewardPool: bigint;
+  worstPlayer: string;
+}
+
+export interface EpochClaimView {
+  epoch: bigint;
+  phase: Phase;
+  isCurrent: boolean;
+  registered: boolean;
+  revealed: boolean;
+  eligible: boolean;
+  settled: boolean;
+  isWinner: boolean;
+  rank?: number;
+  rewardAmount: bigint;
+  rewardClaimed: boolean;
+  bondRefund: bigint;
+  bondClaimed: boolean;
+  bondClaimEndsAt: number;
+  keeperPlayersSettled: number;
+  keeperRewardAmount: bigint;
+  keeperClaimed: boolean;
+  badges: number;
+  worstPlayer: string;
+  claimWindowOpen: boolean;
 }
 
 export interface FeedItem {
@@ -93,10 +118,12 @@ export interface StrategySnapshot {
   mode: "demo" | "live";
   epoch: EpochView;
   players: PlayerView[];
+  claims: EpochClaimView[];
   feed: FeedItem[];
   walletAddress?: string;
   gloryBalance: bigint;
   clusterLabel: string;
+  lastSyncedAt: number;
 }
 
 export interface ActionRequest {
@@ -116,9 +143,12 @@ export interface GameGateway {
   claimAllocation(): Promise<string>;
   advanceEpoch(): Promise<string>;
   settleNextPlayer(): Promise<string>;
-  claimPlayerReward(): Promise<string>;
-  claimBond(): Promise<string>;
-  refreshBadges(): Promise<string>;
+  claimPlayerReward(epoch: bigint): Promise<string>;
+  claimBond(epoch: bigint): Promise<string>;
+  refreshBadges(epoch: bigint): Promise<string>;
+  claimKeeperReward(epoch: bigint): Promise<string>;
+  closePlayerAccounts(epoch: bigint): Promise<string>;
+  closeKeeperCredit(epoch: bigint): Promise<string>;
   exportRevealSecret(): Promise<void>;
   importRevealSecret(file: File): Promise<void>;
 }

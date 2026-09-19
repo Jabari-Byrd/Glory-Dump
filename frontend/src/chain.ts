@@ -18,12 +18,16 @@ import { appConfig } from "./config";
 import idl from "./idl/glory_dump.json";
 import type { GloryDump } from "./idl/glory_dump";
 import {
+  bondRefundLamports,
   bytesToHex,
   commitmentFor,
+  keeperReward,
   projectedPlayerScore,
+  rankReward,
 } from "./rules";
 import type {
   ActionRequest,
+  EpochClaimView,
   EpochView,
   GameGateway,
   LaneView,
@@ -50,12 +54,24 @@ const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
 );
+const NORMAL_FULL_SCAN_INTERVAL_MS = 30_000;
+const LARGE_ROOM_FULL_SCAN_INTERVAL_MS = 120_000;
+const CLAIMS_SCAN_INTERVAL_MS = 60_000;
 
 export class SolanaGateway implements GameGateway {
   private readonly connection = new Connection(appConfig.rpcUrl, "confirmed");
   private readonly programId: PublicKey;
   private program?: Program<GloryDump>;
   private wallet?: InjectedSolanaWallet;
+  private playerRows: PlayerAccountRow[] = [];
+  private laneRows: LaneAccountRow[] = [];
+  private fullScanEpoch?: bigint;
+  private fullScanAt = 0;
+  private unsettledQueue: string[] = [];
+  private claims: EpochClaimView[] = [];
+  private claimsScannedAt = 0;
+  private claimsScanEpoch?: bigint;
+  private claimsScanSignature = "";
 
   constructor() {
     if (!appConfig.liveEnabled) throw new Error("No Solana program ID is configured");
@@ -100,16 +116,25 @@ export class SolanaGateway implements GameGateway {
     const epochRaw = await program.account.epoch.fetch(epochAddress);
     const epoch = mapEpoch(epochRaw);
     const [leaderboardAddress] = this.leaderboardPda(epochNumber);
-    const epochFilter = {
-      memcmp: { offset: 8, bytes: utils.bytes.bs58.encode(u64LittleEndian(epochNumber)) },
-    };
+    const scanInterval = epoch.participantCount > 1_000
+      ? LARGE_ROOM_FULL_SCAN_INTERVAL_MS
+      : NORMAL_FULL_SCAN_INTERVAL_MS;
+    if (
+      this.fullScanEpoch !== epochNumber
+      || Date.now() - this.fullScanAt > scanInterval
+    ) {
+      await this.fullScan(epochNumber);
+    }
+    if (this.playerRows.some((row) => row.account.owner.equals(owner))) {
+      await this.refreshOwner(owner, [0, 1, 2, 3], epochNumber);
+    }
 
-    const [currentPlayers, currentLanes, leaderboard, tokenAccounts] = await Promise.all([
-      program.account.playerEpoch.all([epochFilter]),
-      program.account.balanceLane.all([epochFilter]),
+    const [leaderboard, tokenAccounts] = await Promise.all([
       program.account.leaderboard.fetch(leaderboardAddress),
       this.connection.getParsedTokenAccountsByOwner(owner, { mint: protocol.gloryMint }),
     ]);
+    const currentPlayers = this.playerRows;
+    const currentLanes = this.laneRows;
 
     const lanesByOwner = new Map<string, typeof currentLanes>();
     for (const row of currentLanes) {
@@ -122,6 +147,7 @@ export class SolanaGateway implements GameGateway {
       leaderboard.entries.map((entry) => [entry.player.toBase58(), entry.claimed] as const),
     );
     const now = Math.floor(Date.now() / 1000);
+    const claims = await this.loadClaims(owner, epoch, now).catch(() => this.claims);
     const players = currentPlayers.map(({ account }) => {
       const address = account.owner.toBase58();
       const laneRows = (lanesByOwner.get(address) ?? []).sort(
@@ -177,6 +203,7 @@ export class SolanaGateway implements GameGateway {
       mode: "live",
       epoch,
       players,
+      claims,
       feed: [{
         id: `live-${epoch.number}`,
         timestamp: now,
@@ -186,6 +213,7 @@ export class SolanaGateway implements GameGateway {
       walletAddress: owner.toBase58(),
       gloryBalance,
       clusterLabel: appConfig.clusterLabel,
+      lastSyncedAt: now,
     };
   }
 
@@ -224,6 +252,8 @@ export class SolanaGateway implements GameGateway {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
+    this.invalidateFullScan();
+    this.invalidateClaims();
     downloadRevealBackup(this.programId, owner, epoch, secret, commitment);
     return signature;
   }
@@ -283,102 +313,125 @@ export class SolanaGateway implements GameGateway {
       const method = epoch.participantCount >= 20
         ? program.methods.beginReveal()
         : program.methods.cancelEpoch();
-      return method.accountsPartial(transitionAccounts).rpc();
+      return this.afterTransition(method.accountsPartial(transitionAccounts).rpc());
     }
     if (phase === "reveal") {
       if (now < toNumber(epoch.revealEndsAt)) throw new Error("The reveal window is still open");
       const method = epoch.revealedCount >= 2
         ? program.methods.sealRandomness()
         : program.methods.cancelEpoch();
-      return method.accountsPartial(transitionAccounts).rpc();
+      return this.afterTransition(method.accountsPartial(transitionAccounts).rpc());
     }
     if (phase === "planning") {
       if (now >= toNumber(epoch.activeEndsAt)) {
-        return program.methods.beginSettlement().accountsPartial(transitionAccounts).rpc();
+        return this.afterTransition(
+          program.methods.beginSettlement().accountsPartial(transitionAccounts).rpc(),
+        );
       }
       if (now < toNumber(epoch.activeStartsAt)) throw new Error("The planning hour is still active");
-      return program.methods.beginActive().accountsPartial(transitionAccounts).rpc();
+      return this.afterTransition(
+        program.methods.beginActive().accountsPartial(transitionAccounts).rpc(),
+      );
     }
     if (phase === "active") {
       if (now < toNumber(epoch.activeEndsAt)) throw new Error("The active epoch has not ended");
-      return program.methods.beginSettlement().accountsPartial(transitionAccounts).rpc();
+      return this.afterTransition(
+        program.methods.beginSettlement().accountsPartial(transitionAccounts).rpc(),
+      );
     }
     if (phase === "settling") {
       if (epoch.settledCount !== epoch.participantCount) {
         throw new Error("Settle every player before completing the epoch");
       }
       const [leaderboard] = this.leaderboardPda(number);
-      return program.methods
-        .completeEpoch()
-        .accountsPartial({
-          finalizer: payer,
-          protocol: protocolAddress,
-          epoch: epochAddress,
-          leaderboard,
-        })
-        .rpc();
+      return this.afterTransition(
+        program.methods
+          .completeEpoch()
+          .accountsPartial({
+            finalizer: payer,
+            protocol: protocolAddress,
+            epoch: epochAddress,
+            leaderboard,
+          })
+          .rpc(),
+      );
     }
     const next = number + 1n;
     const [nextEpoch] = this.epochPda(next);
     const [nextLeaderboard] = this.leaderboardPda(next);
-    return program.methods
-      .openNextEpoch(new BN(next.toString()))
-      .accountsPartial({
-        payer,
-        protocol: protocolAddress,
-        previousEpoch: epochAddress,
-        epoch: nextEpoch,
-        leaderboard: nextLeaderboard,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    return this.afterTransition(
+      program.methods
+        .openNextEpoch(new BN(next.toString()))
+        .accountsPartial({
+          payer,
+          protocol: protocolAddress,
+          previousEpoch: epochAddress,
+          epoch: nextEpoch,
+          leaderboard: nextLeaderboard,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc(),
+    );
   }
 
   async settleNextPlayer(): Promise<string> {
     const program = this.requireProgram();
     const keeper = this.requirePublicKey();
     const epoch = await this.currentEpochNumber();
-    const filter = {
-      memcmp: { offset: 8, bytes: utils.bytes.bs58.encode(u64LittleEndian(epoch)) },
-    };
-    const players = await program.account.playerEpoch.all([filter]);
-    const next = players.find(({ account }) => !account.settled);
-    if (!next) throw new Error("Every registered player is already settled");
-
-    const owner = next.account.owner;
     const [epochAddress] = this.epochPda(epoch);
     const [leaderboard] = this.leaderboardPda(epoch);
-    const [player] = this.playerPda(epoch, owner);
     const [keeperCredit] = this.keeperPda(epoch, keeper);
-    const lanes = Array.from({ length: 4 }, (_, index) => this.lanePda(epoch, owner, index)[0]);
-    return program.methods
-      .settlePlayer()
-      .accountsPartial({
-        keeper,
-        epoch: epochAddress,
-        leaderboard,
-        player,
-        laneZero: lanes[0]!,
-        laneOne: lanes[1]!,
-        laneTwo: lanes[2]!,
-        laneThree: lanes[3]!,
-        keeperCredit,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    if (this.fullScanEpoch !== epoch || this.unsettledQueue.length === 0) {
+      await this.fullScan(epoch);
+    }
+    for (let scanAttempt = 0; scanAttempt < 2; scanAttempt += 1) {
+      while (this.unsettledQueue.length > 0) {
+        const ownerString = this.unsettledQueue[0]!;
+        const owner = new PublicKey(ownerString);
+        const [player] = this.playerPda(epoch, owner);
+        const account = await program.account.playerEpoch.fetchNullable(player);
+        if (!account || account.settled) {
+          this.unsettledQueue.shift();
+          continue;
+        }
+        const lanes = Array.from(
+          { length: 4 },
+          (_, index) => this.lanePda(epoch, owner, index)[0],
+        );
+        const signature = await program.methods
+          .settlePlayer()
+          .accountsPartial({
+            keeper,
+            epoch: epochAddress,
+            leaderboard,
+            player,
+            laneZero: lanes[0]!,
+            laneOne: lanes[1]!,
+            laneTwo: lanes[2]!,
+            laneThree: lanes[3]!,
+            keeperCredit,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        this.unsettledQueue.shift();
+        await this.refreshOwner(owner, [0, 1, 2, 3], epoch);
+        return signature;
+      }
+      await this.fullScan(epoch);
+    }
+    throw new Error("Every registered player is already settled");
   }
 
-  async claimPlayerReward(): Promise<string> {
+  async claimPlayerReward(epoch: bigint): Promise<string> {
     const program = this.requireProgram();
     const owner = this.requirePublicKey();
     const [protocolAddress] = this.protocolPda();
     const protocol = await program.account.protocol.fetch(protocolAddress);
-    const epoch = toBigInt(protocol.currentEpoch);
     const [epochAddress] = this.epochPda(epoch);
     const [leaderboard] = this.leaderboardPda(epoch);
     const [player] = this.playerPda(epoch, owner);
     const destination = associatedTokenAddress(owner, protocol.gloryMint);
-    return program.methods
+    const signature = await program.methods
       .claimPlayerReward()
       .accountsPartial({
         owner,
@@ -393,30 +446,101 @@ export class SolanaGateway implements GameGateway {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
+    this.invalidateClaims();
+    await this.refreshOwner(owner, [], epoch);
+    return signature;
   }
 
-  async claimBond(): Promise<string> {
+  async claimKeeperReward(epoch: bigint): Promise<string> {
+    const program = this.requireProgram();
+    const keeper = this.requirePublicKey();
+    const [protocolAddress] = this.protocolPda();
+    const protocol = await program.account.protocol.fetch(protocolAddress);
+    const [epochAddress] = this.epochPda(epoch);
+    const [keeperCredit] = this.keeperPda(epoch, keeper);
+    const destination = associatedTokenAddress(keeper, protocol.gloryMint);
+    const signature = await program.methods
+      .claimKeeperReward()
+      .accountsPartial({
+        keeper,
+        protocol: protocolAddress,
+        epoch: epochAddress,
+        keeperCredit,
+        gloryMint: protocol.gloryMint,
+        destination,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    this.invalidateClaims();
+    return signature;
+  }
+
+  async claimBond(epoch: bigint): Promise<string> {
     const program = this.requireProgram();
     const owner = this.requirePublicKey();
-    const epoch = await this.currentEpochNumber();
     const [epochAddress] = this.epochPda(epoch);
     const [player] = this.playerPda(epoch, owner);
-    return program.methods
+    const signature = await program.methods
       .claimBond()
       .accountsPartial({ owner, epoch: epochAddress, player })
       .rpc();
+    this.invalidateClaims();
+    await this.refreshOwner(owner, [], epoch);
+    return signature;
   }
 
-  async refreshBadges(): Promise<string> {
+  async refreshBadges(epoch: bigint): Promise<string> {
     const program = this.requireProgram();
     const owner = this.requirePublicKey();
-    const epoch = await this.currentEpochNumber();
     const [epochAddress] = this.epochPda(epoch);
     const [player] = this.playerPda(epoch, owner);
-    return program.methods
+    const signature = await program.methods
       .refreshBadges()
       .accountsPartial({ owner, epoch: epochAddress, player })
       .rpc();
+    this.invalidateClaims();
+    await this.refreshOwner(owner, [], epoch);
+    return signature;
+  }
+
+  async closePlayerAccounts(epoch: bigint): Promise<string> {
+    const program = this.requireProgram();
+    const owner = this.requirePublicKey();
+    const [epochAddress] = this.epochPda(epoch);
+    const [leaderboard] = this.leaderboardPda(epoch);
+    const [player] = this.playerPda(epoch, owner);
+    const lanes = Array.from({ length: 4 }, (_, index) => this.lanePda(epoch, owner, index)[0]);
+    const signature = await program.methods
+      .closePlayerAccounts()
+      .accountsPartial({
+        owner,
+        epoch: epochAddress,
+        leaderboard,
+        player,
+        laneZero: lanes[0]!,
+        laneOne: lanes[1]!,
+        laneTwo: lanes[2]!,
+        laneThree: lanes[3]!,
+      })
+      .rpc();
+    this.invalidateFullScan();
+    this.invalidateClaims();
+    return signature;
+  }
+
+  async closeKeeperCredit(epoch: bigint): Promise<string> {
+    const program = this.requireProgram();
+    const keeper = this.requirePublicKey();
+    const [epochAddress] = this.epochPda(epoch);
+    const [keeperCredit] = this.keeperPda(epoch, keeper);
+    const signature = await program.methods
+      .closeKeeperCredit()
+      .accountsPartial({ keeper, epoch: epochAddress, keeperCredit })
+      .rpc();
+    this.invalidateClaims();
+    return signature;
   }
 
   async exportRevealSecret(): Promise<void> {
@@ -467,10 +591,12 @@ export class SolanaGateway implements GameGateway {
       const laneIndex = request.actorLane ?? 0;
       const [player] = this.playerPda(epoch, owner);
       const [lane] = this.lanePda(epoch, owner, laneIndex);
-      return program.methods
+      const signature = await program.methods
         .armRedirect(laneIndex)
         .accountsPartial({ signer: owner, epoch: epochAddress, player, lane })
         .rpc();
+      await this.refreshOwner(owner, [laneIndex], epoch);
+      return signature;
     }
 
     if (!request.target || request.amount === undefined) {
@@ -509,15 +635,175 @@ export class SolanaGateway implements GameGateway {
       systemProgram: SystemProgram.programId,
     };
     if (request.kind === "dump") {
-      return program.methods
+      const signature = await program.methods
         .dump(amount, actorLaneIndex, targetLaneIndex)
         .accountsPartial(accounts)
         .rpc();
+      await Promise.all([
+        this.refreshOwner(owner, [actorLaneIndex], epoch),
+        this.refreshOwner(target, [targetLaneIndex], epoch),
+      ]);
+      return signature;
     }
-    return program.methods
+    const signature = await program.methods
       .absorb(amount, actorLaneIndex, targetLaneIndex)
       .accountsPartial(accounts)
       .rpc();
+    await Promise.all([
+      this.refreshOwner(owner, [actorLaneIndex], epoch),
+      this.refreshOwner(target, [targetLaneIndex], epoch),
+    ]);
+    return signature;
+  }
+
+  private async fullScan(epochNumber: bigint): Promise<void> {
+    const program = this.requireProgram();
+    const epochFilter = {
+      memcmp: { offset: 8, bytes: utils.bytes.bs58.encode(u64LittleEndian(epochNumber)) },
+    };
+    const [players, lanes] = await Promise.all([
+      program.account.playerEpoch.all([epochFilter]),
+      program.account.balanceLane.all([epochFilter]),
+    ]);
+    this.playerRows = players;
+    this.laneRows = lanes;
+    this.fullScanEpoch = epochNumber;
+    this.fullScanAt = Date.now();
+    this.unsettledQueue = players
+      .filter(({ account }) => !account.settled)
+      .map(({ account }) => account.owner.toBase58());
+  }
+
+  private async afterTransition(transition: Promise<string>): Promise<string> {
+    const signature = await transition;
+    this.invalidateFullScan();
+    this.invalidateClaims();
+    return signature;
+  }
+
+  private async refreshOwner(
+    owner: PublicKey,
+    laneIndexes: number[],
+    epochNumber: bigint,
+  ): Promise<void> {
+    if (this.fullScanEpoch !== epochNumber) return;
+    const program = this.requireProgram();
+    try {
+      const [playerAddress] = this.playerPda(epochNumber, owner);
+      const player = await program.account.playerEpoch.fetchNullable(playerAddress);
+      if (player) this.upsertPlayer(playerAddress, player);
+      for (const laneIndex of laneIndexes) {
+        const [laneAddress] = this.lanePda(epochNumber, owner, laneIndex);
+        const lane = await program.account.balanceLane.fetchNullable(laneAddress);
+        if (lane) this.upsertLane(laneAddress, lane);
+      }
+    } catch {
+      this.fullScanAt = 0;
+    }
+  }
+
+  private upsertPlayer(publicKey: PublicKey, account: PlayerAccountRow["account"]): void {
+    const index = this.playerRows.findIndex((row) => row.publicKey.equals(publicKey));
+    if (index >= 0) {
+      this.playerRows[index] = { publicKey, account };
+    } else {
+      this.playerRows.push({ publicKey, account });
+    }
+  }
+
+  private upsertLane(publicKey: PublicKey, account: LaneAccountRow["account"]): void {
+    const index = this.laneRows.findIndex((row) => row.publicKey.equals(publicKey));
+    if (index >= 0) {
+      this.laneRows[index] = { publicKey, account };
+    } else {
+      this.laneRows.push({ publicKey, account });
+    }
+  }
+
+  private invalidateFullScan(): void {
+    this.fullScanEpoch = undefined;
+    this.fullScanAt = 0;
+  }
+
+  private invalidateClaims(): void {
+    this.claimsScannedAt = 0;
+    this.claimsScanSignature = "";
+  }
+
+  private async loadClaims(
+    owner: PublicKey,
+    currentEpoch: EpochView,
+    now: number,
+  ): Promise<EpochClaimView[]> {
+    const signature = `${currentEpoch.number}:${currentEpoch.phase}:${currentEpoch.settledCount}`;
+    if (
+      this.claimsScannedAt > 0
+      && this.claimsScanEpoch === currentEpoch.number
+      && this.claimsScanSignature === signature
+      && Date.now() - this.claimsScannedAt < CLAIMS_SCAN_INTERVAL_MS
+    ) {
+      return this.claims;
+    }
+    const program = this.requireProgram();
+    const players = await program.account.playerEpoch.all([{
+      memcmp: { offset: 16, bytes: owner.toBase58() },
+    }]);
+    const claims = await Promise.all(players.map(async ({ account }) => {
+      const epochNumber = toBigInt(account.epoch);
+      const [epochAddress] = this.epochPda(epochNumber);
+      const [leaderboardAddress] = this.leaderboardPda(epochNumber);
+      const [epochRaw, leaderboard] = await Promise.all([
+        program.account.epoch.fetch(epochAddress),
+        program.account.leaderboard.fetch(leaderboardAddress),
+      ]);
+      const epoch = mapEpoch(epochRaw);
+      const rank = leaderboard.entries.findIndex((entry) => entry.player.equals(owner));
+      const rewardAmount = rank >= 0
+        ? rankReward(epoch.playerRewardPool, epoch.winnerCount, rank)
+        : 0n;
+      const [keeperAddress] = this.keeperPda(epochNumber, owner);
+      const keeperCredit = await program.account.keeperCredit.fetchNullable(keeperAddress);
+      const keeperRewardAmount = keeperCredit
+        ? keeperReward(
+            epoch.keeperRewardPool,
+            keeperCredit.playersSettled,
+            epoch.participantCount,
+          )
+        : 0n;
+      const eligible = account.revealed && account.meaningfulActions > 0;
+      const bondRefund = bondRefundLamports(epoch.phase, eligible);
+      return {
+        epoch: epochNumber,
+        phase: epoch.phase,
+        isCurrent: epochNumber === currentEpoch.number,
+        registered: true,
+        revealed: account.revealed,
+        eligible,
+        settled: account.settled,
+        isWinner: rank >= 0,
+        rank: rank >= 0 ? rank + 1 : undefined,
+        rewardAmount,
+        rewardClaimed: rank >= 0 ? leaderboard.entries[rank]!.claimed : false,
+        bondRefund,
+        bondClaimed: account.bondClaimed,
+        bondClaimEndsAt: epoch.bondClaimEndsAt,
+        keeperPlayersSettled: keeperCredit?.playersSettled ?? 0,
+        keeperRewardAmount,
+        keeperClaimed: keeperCredit?.claimed ?? false,
+        badges: Number(toBigInt(account.badges)),
+        worstPlayer: epoch.worstPlayer,
+        claimWindowOpen: (epoch.phase === "complete" || epoch.phase === "cancelled")
+          && now <= epoch.bondClaimEndsAt,
+      } satisfies EpochClaimView;
+    }));
+    claims.sort((left, right) => (
+      left.epoch === right.epoch ? 0 : left.epoch > right.epoch ? -1 : 1
+    ));
+    this.claims = claims;
+    this.claimsScannedAt = Date.now();
+    this.claimsScanEpoch = currentEpoch.number;
+    this.claimsScanSignature = signature;
+    return claims;
   }
 
   private requireProgram(): Program<GloryDump> {
@@ -602,6 +888,8 @@ export class SolanaGateway implements GameGateway {
 type GameAccounts = IdlAccounts<GloryDump>;
 type EpochAccount = GameAccounts["epoch"];
 type LaneAccount = GameAccounts["balanceLane"];
+type PlayerAccountRow = { publicKey: PublicKey; account: GameAccounts["playerEpoch"] };
+type LaneAccountRow = { publicKey: PublicKey; account: GameAccounts["balanceLane"] };
 
 interface RevealBackup {
   version: 1;
@@ -631,6 +919,7 @@ function mapEpoch(account: EpochAccount): EpochView {
     phaseEndsAt,
     activeStartsAt,
     activeEndsAt,
+    bondClaimEndsAt: toNumber(account.bondClaimEndsAt),
     participantCount: account.participantCount,
     revealedCount: account.revealedCount,
     settledCount: account.settledCount,
@@ -638,6 +927,7 @@ function mapEpoch(account: EpochAccount): EpochView {
     winnerCount: account.winnerCount,
     playerRewardPool: toBigInt(account.playerRewardPool),
     keeperRewardPool: toBigInt(account.keeperRewardPool),
+    worstPlayer: account.worstPlayer.toBase58(),
   };
 }
 

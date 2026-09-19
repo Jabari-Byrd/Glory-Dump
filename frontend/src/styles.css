@@ -418,6 +418,93 @@ main {
   grid-column: 1 / 2;
 }
 
+.claims-panel .operations-grid {
+  grid-template-columns: 1fr auto;
+}
+
+.claims-list {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+}
+
+.claim-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.62fr) minmax(260px, 1.4fr) minmax(190px, auto);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #11130f;
+}
+
+.claim-row.current {
+  border-left-color: var(--acid);
+}
+
+.claim-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.claim-heading strong,
+.claim-heading span,
+.claim-summary small,
+.claim-summary strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.claim-heading strong {
+  font-size: 11px;
+}
+
+.claim-heading span,
+.claim-summary small {
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.claim-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, auto));
+  gap: 6px 14px;
+  align-items: start;
+}
+
+.claim-summary > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claim-summary strong {
+  font-size: 10px;
+  color: var(--paper);
+}
+
+.claim-summary .claimed strong {
+  color: var(--acid);
+}
+
+.claim-summary small {
+  grid-column: 1 / -1;
+}
+
+.claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.claim-actions .button {
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 8px;
+}
+
 .file-button {
   display: grid;
   place-items: center;
@@ -1532,6 +1619,16 @@ footer {
   footer {
     gap: 10px;
     flex-direction: column;
+  }
+
+  .claims-panel .operations-grid,
+  .claim-row,
+  .claim-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-actions {
+    justify-content: flex-start;
   }
 }
 

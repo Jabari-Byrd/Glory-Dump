@@ -18,6 +18,13 @@ The v3 game rules, Anchor instruction surface, generated IDL, wallet client, pla
 
 A simulator-only v4 candidate now tests equal five-day score chapters, banked chapter stamina, scheduled batches, a target-wide ABSORB relief budget, coalition economics, and exact populations up to 100,000. A separate analytical command models a one-world target namespace through seven billion players. None of those v4 mechanics or the aggregate-settlement architecture is in the Anchor program yet.
 
+The simulator now reports coalition economics separately from raw win-rate advantage: controller
+GLORY, total modeled bot-army cost, and the controller break-even GLORY price. Early 30%-Sybil runs
+show the committed v3 controller can win ~14x its share at the 2,560-player bound, but the modeled
+break-even price rises from about 1,158 lamports per GLORY at 100 players to about 44,319 lamports
+at 2,560. Large bot armies are therefore difficult to make profitable at scale, but win-rate
+distortion remains a quality problem the v4 candidate only partially addresses.
+
 It is still **experimental, unaudited, and not mainnet-ready**. Maximum-scale contention, the remaining validator edge matrix, held-out economic experiments, randomness hardening, independent security audit, and legal review remain release gates. A successful lifecycle or bot run is not evidence that GLORY has investment value or that the game economy is manipulation-resistant.
 
 ## The game loop
@@ -108,8 +115,14 @@ The frontend is a responsive strategy interface rather than an address textbox. 
 - exact action previews and human inputs such as `250M` or `1.2B`;
 - commitment-secret download and verified restore;
 - permissionless phase, settlement, reward, and bond controls;
+- an epoch-vault panel that finds every epoch this wallet joined, keeps old GLORY and bond claims
+  visible after the next epoch opens, and exposes keeper claims plus safe rent recovery;
 - a local playable demo when no program ID is configured;
 - lazy loading of the larger wallet/Anchor client so demo boot remains small.
+
+The live client keeps a bounded account cache instead of re-scanning every player and lane on each
+refresh, and settlement uses a cached unsettled-player queue rather than re-reading the whole room
+before every single-player settlement. A fork-aware indexer remains the production read-model gate.
 
 ```bash
 pnpm install

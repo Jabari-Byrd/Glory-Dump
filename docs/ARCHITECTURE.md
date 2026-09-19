@@ -197,6 +197,13 @@ Reveal secrets are generated with Web Crypto, stored under program/owner/epoch i
 
 The wallet-only Anchor code is dynamically imported. A demo build boots from a small UI chunk; the heavier IDL and Solana codecs load only when a live program ID is configured.
 
+Live reads use a bounded cache: a full epoch account scan is reused for 30 seconds in small rooms
+and 120 seconds once the room exceeds 1,000 players, the connected wallet is refreshed on every
+poll, and settlement keeps an unsettled-player queue instead of re-reading the whole room before
+every one-player settlement. This removes the previous quadratic settlement read pattern while
+preserving the program as the authority. A fork-aware indexer/read model is still required before
+production use at the 2,560-player bound; the cache is a client-side mitigation, not an indexer.
+
 ## Excluded systems
 
 There is no bridge, cross-chain mint, DUMP SPL wrapper, transfer tax, fee pot, oracle, automated market maker, buyback, burn controller, DAO, emergency pause, upgrade instruction, or on-chain vulnerability inbox.

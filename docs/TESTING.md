@@ -62,7 +62,7 @@ anchor test --validator legacy
 
 Current implementation evidence (2026-09-12): `cargo-build-sbf` from Solana CLI 4.1.2 produced a current 603 KiB production-rules program (`SHA-256 04cc35409a0d0212bdaef43d540d0fb30bebf700576f41e0c808cef48339ad44`). A fresh loopback validator loaded the program at the declared development address. The initializer and registration smoke create the Protocol, epoch, leaderboard, six-decimal GLORY mint, player, exact 2,000,000-lamport bond, and four lane PDAs through real runtime instructions.
 
-`scripts/lifecycle-localnet.mjs` adds a managed, 21-wallet end-to-end suite. It uses an SBF build with `test-fast`, whose protocol version has the high bit set (`0x8003`) so the production client rejects it. Production constants are unchanged. The suite waits through shortened real clock windows and verifies 20 reveals and eligible players, one penalized withholder, seeded allocations, DUMP/ABSORB/REDIRECT, Guard and locks, session delegation, atomic failure cases, exact global DUMP conservation, all-player settlement, GLORY and SOL claims, rent cleanup, a cancelled successor, and sequential opening through epoch 3. It also records per-instruction fee and compute-unit totals. The passing test-only SBF was 603 KiB (`SHA-256 00aeb36b0adba847f682ddc44fdb95f916e854d90865661c1f6f7ea6f12c1819`).
+`scripts/lifecycle-localnet.mjs` adds a managed, 21-wallet end-to-end suite. It uses an SBF build with `test-fast`, whose protocol version has the high bit set (`0x8003`) so the production client rejects it. Production constants are unchanged. The suite waits through shortened real clock windows and verifies 20 reveals and eligible players, one penalized withholder, seeded allocations, DUMP/ABSORB/REDIRECT, Guard and locks, session delegation, atomic failure cases, exact global DUMP conservation, all-player settlement, GLORY and SOL claims, rent cleanup, a cancelled successor, and sequential opening through epoch 3. It now opens epoch 2 before claiming epoch 1's winner, keeper, and bond rewards, so the validator path proves that old-epoch claims survive the epoch transition. It also records per-instruction fee and compute-unit totals. The passing test-only SBF was 603 KiB (`SHA-256 00aeb36b0adba847f682ddc44fdb95f916e854d90865661c1f6f7ea6f12c1819`).
 
 The latest clean fresh-ledger run conserved 101B DUMP and minted exactly 44,700 GLORY, equal to the committed reward pool. Average observed compute was about 47.6k CU per registration, 10.1k per reveal, 25.8k per allocation claim, 29.3k per eligibility DUMP, and 44.5k per player settlement. These are local-validator observations, not Mainnet capacity guarantees.
 
@@ -198,6 +198,7 @@ Primary outputs:
 - fraction of inactive/degenerate epochs;
 - action mix, target concentration, and recovery after dogpiles;
 - benefit/cost of Sybil wallets after bonds, rent, and fees;
+- controller-only bot-army break-even GLORY price and modeled net after coalition costs;
 - frequency and value of last-window reversals;
 - Guard created, consumed, and stranded;
 - Heat saturation and idle time;

@@ -27,6 +27,14 @@ cargo run -p glory-dump-sim -- v4-sweep \
   --epochs 100 \
   --output /private/tmp/glory-dump-v4-sweep.json
 
+cargo run -p glory-dump-sim -- run \
+  --scenario sybil_stress \
+  --population 500 \
+  --epochs 50 \
+  --sybil-bps 3000 \
+  --glory-price-lamports 1000 \
+  --output /private/tmp/glory-dump-bot-army.json
+
 cargo run -p glory-dump-sim -- scale \
   --output /private/tmp/glory-dump-global-scale.json
 ```
@@ -64,10 +72,19 @@ Each report includes:
 - Guard created, used through ricochets, and stranded;
 - GLORY issuance and player-level Gini;
 - estimated signature fees, bond losses, strategy break-even GLORY price, and optional hypothetical proceeds;
+- controller-only coalition economics: helper count, controller advantage, controller GLORY,
+  total bot-army cost, controller break-even price, and modeled net at the configured price;
 - exact DUMP and reward-pool conservation checks;
 - machine-readable watch/risk signals.
 
 The hypothetical GLORY price is an input for sensitivity analysis, not a price forecast. Economic net and break-even price are explicitly reported before account rent, market slippage, and off-chain coordination/bribe costs because the pure simulator does not execute or observe those systems.
+
+Reports now use schema `glory-dump-simulation-report-v3`. The `coalition_economics` section
+separates a controller's win-rate advantage from whether the modeled bot army actually pays for
+itself. `controller_break_even_glory_price_lamports` is the price per whole GLORY at which the
+controller's share of coalition GLORY would cover the modeled coalition costs. A bot army can
+dominate the winner set and still be economically unattractive if that break-even price is above
+the market's plausible range.
 
 ## Predeclared exploratory bands
 
@@ -84,6 +101,19 @@ These are the first-pass review bands for a 100-player mixed room across at leas
 | Inactive reward epochs | `0` when population is at least 20 | any occurrence |
 
 A band violation is a research lead, not permission to change the protocol. Parameter candidates need a separate training-seed sweep and confirmation on held-out seeds and altered bot mixtures.
+
+Bot-army economics are a second axis, not a substitute for the advantage band. A coalition can
+have a high win-rate advantage but a break-even GLORY price above any plausible market; that is
+still a quality problem because it distorts the winner set, but it is not an immediate profit
+motive. The dangerous combination is a controller advantage at or above `2x` **and** a
+`controller_break_even_glory_price_lamports` below the price range the project is willing to
+assume. Reviewers must state that price range before treating a run as economically safe.
+
+The signal pass emits `starting_tier_locked_out` when a sampled tier never wins, reports both the
+stale and volatile ends of the final-window turnover band, and emits `target_concentration` and
+`glory_concentration` when the maximum target share or GLORY Gini crosses the predeclared bounds.
+It also emits `bot_army_economics` to distinguish a real controller advantage from a profitable
+one.
 
 ## Current exploratory evidence
 
@@ -124,7 +154,58 @@ The rejected incoming-DUMP-cap ablation illustrates the Sybil trap. In otherwise
 
 The optimized exact simulator also completed its configured maximum of 100,000 players for one epoch with six five-day decision windows, 74,226 eligible players, and 945,016 successful actions. That is evidence about harness complexity and arithmetic bounds only. It is not a validator, network, prover, or human-concurrency result.
 
-Local reports belong under ignored `simulation-output/` or a temporary directory. The next economic experiment should add adaptive/start-aware adversaries and a human-attention/playbook model, then test opening-only capacity versus a per-action stamina overhead on fresh training seeds before reserving another confirmation set.
+### Bot-army cost reality
+
+The first coalition-economics runs make the scaling question concrete. They use the
+`sybil_stress` scenario with a 30% Sybil population and a hypothetical GLORY price of
+1,000 lamports per whole GLORY. The controller owns the helpers, so coalition bonds, fees,
+and modeled coordination costs are all charged to the controller:
+
+| Rules | Population | Epochs | Helpers per coalition | Controller advantage | Controller break-even GLORY price |
+|---|---:|---:|---:|---:|---:|
+| Committed v3 | 100 | 100 | 9 | `18.6x` | `1,158` lamports |
+| Committed v3 | 500 | 50 | 49 | `12.0x` | `7,992` lamports |
+| Committed v3 | 2,560 | 10 | 255 | `14.1x` | `44,319` lamports |
+| Simulator-only v4 | 100 | 100 | 9 | `2.0x` | `13,907` lamports |
+| Simulator-only v4 | 500 | 50 | 49 | `3.2x` | `145,920` lamports |
+| Simulator-only v4 | 2,560 | 10 | 255 | `9.8x` | `385,949` lamports |
+
+The v3 controller can dominate the winner set, but the modeled cost of a large bot army rises
+roughly linearly with helper count while the GLORY pool scales sublinearly. At the current
+2,560-player program bound, the controller needs a substantially higher GLORY price than a
+small coalition to break even. The v4 candidate reduces the controller win advantage further
+and raises the break-even price sharply. These are simulator economics before rent, market
+slippage, real bribe competition, and human behavior; they are not a claim that a funded
+adversary cannot subsidize a loss-leading army.
+
+The max-room v4 row is a deliberately small 10-epoch sample and should not be treated as a
+stable estimate. It shows the important shape: even when the modeled army is deeply unprofitable
+at a plausible GLORY price, a 30% Sybil population can still capture a large share of the winner
+set. Profitability and win-rate distortion are separate gates.
+
+A one-epoch 100,000-player v4 research run with a 30% Sybil population fielded 9,999 helpers
+per coalition at a modeled cost of about `20.99 SOL` for the sacrificial coalition, and the
+controller earned no GLORY on that seed. That is a cost anchor, not a win-rate estimate. It also
+exposes a separate design decision: non-canonical research runs above the 2,560-player program
+bound award the simulator's 5% winner count, while the committed program caps the leaderboard at
+128 winners. A future 100,000-player arena must decide whether it keeps a bounded winner set or
+scales it; that choice changes both the chance of capturing a winner slot and the reward per
+slot. Do not treat the 100,000-player break-even math as settled until that winner-set contract
+is chosen. Use `--winner-cap 128` to test the bounded-winner counterfactual.
+
+In the bounded-winner counterfactual, the 400,000 GLORY pool split across 128 winners is
+3,125 GLORY per average winner slot. At the run's 1,000-lamports-per-GLORY input, one average
+slot is worth 3,125,000 lamports against a modeled coalition cost of 20,988,830,000 lamports;
+even capturing the entire pool is worth only 400,000,000 lamports at that price. The controller
+would need about 6,716,426 lamports per GLORY to break even on one average slot, or about
+52,472 lamports per GLORY to break even by capturing the entire pool. These arithmetic results
+are the reason the winner-set contract must be decided before treating large-population
+profitability as a fixed property.
+
+Local reports belong under ignored `simulation-output/` or a temporary directory. The next
+economic experiment should add adaptive/start-aware adversaries and a human-attention/playbook
+model, then test a clamped/concave capacity curve versus a per-action stamina overhead and the
+REDIRECT probe/rearm variants on fresh training seeds before reserving another confirmation set.
 
 ## Boundaries
 

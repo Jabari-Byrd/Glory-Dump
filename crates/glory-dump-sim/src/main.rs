@@ -49,6 +49,7 @@ RUN OPTIONS
   --absorb-relief-cap-bps N     Target-wide ABSORB relief per chapter
   --inbound-cap-bps N           Target-wide landed DUMP per chapter
   --coordination-cost N         Modeled lamports per coalition helper per epoch
+  --winner-cap N                Cap research winner count (committed v3 uses 128)
   --output PATH                 Write JSON atomically instead of stdout
   --compact                     Disable pretty JSON
 
@@ -165,6 +166,7 @@ struct Options {
     absorb_relief_cap_bps: Option<u64>,
     inbound_cap_bps: Option<u64>,
     coordination_cost_lamports: Option<u64>,
+    winner_cap: Option<u16>,
     scale_populations: Option<Vec<u64>>,
     action_interval_seconds: Option<u64>,
     modeled_direct_actions_per_second: Option<u64>,
@@ -248,6 +250,7 @@ impl Options {
                 "--coordination-cost" => {
                     options.coordination_cost_lamports = Some(parse(value, flag)?)
                 }
+                "--winner-cap" => options.winner_cap = Some(parse(value, flag)?),
                 "--scale-populations" => {
                     options.scale_populations = Some(parse_u64_list(value, flag)?)
                 }
@@ -356,6 +359,9 @@ impl Options {
             config
                 .research
                 .coalition_coordination_cost_lamports_per_helper_epoch = value;
+        }
+        if let Some(value) = self.winner_cap {
+            config.research.winner_cap = Some(value);
         }
         config.validate()?;
         Ok(config)

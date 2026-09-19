@@ -2,21 +2,26 @@ import { describe, expect, it } from "vitest";
 
 import {
   DUMP_TIER_SIZE,
+  bondRefundLamports,
   bytesToHex,
+  canClosePlayerAccounts,
   commitmentFor,
   formatDump,
   heatAt,
   heatClearAt,
   heatCost,
+  isGarbageEmperor,
+  keeperReward,
   minimumAction,
   noActionScoreForecast,
   parseDumpInput,
   projectedPlayerScore,
   projectedWeightedScore,
+  rankReward,
   scoreDeltaForBalanceChange,
   threatViews,
 } from "./rules";
-import type { EpochView, PlayerView } from "./types";
+import type { EpochClaimView, EpochView, PlayerView } from "./types";
 
 describe("client rule parity", () => {
   it("matches the Rust commitment test vector", async () => {
@@ -80,6 +85,7 @@ describe("client rule parity", () => {
       phaseEndsAt: end,
       activeStartsAt: start,
       activeEndsAt: end,
+      bondClaimEndsAt: 0,
       participantCount: 1,
       revealedCount: 1,
       settledCount: 0,
@@ -87,6 +93,7 @@ describe("client rule parity", () => {
       winnerCount: 1,
       playerRewardPool: 0n,
       keeperRewardPool: 0n,
+      worstPlayer: "",
     };
     const forecast = noActionScoreForecast(player, epoch, start, 5);
     expect(forecast).toHaveLength(5);
@@ -153,6 +160,94 @@ describe("client rule parity", () => {
       1_000 + 3 * 60 * 60,
     );
     expect(heatClearAt({ units: 5_000, updatedAt: 0 }, 3 * 60 * 60)).toBe(3 * 60 * 60);
+  });
+
+  it("mirrors the on-chain rank reward split", () => {
+    const pool = 99_000_003n;
+    for (const winners of [1, 2, 5, 20, 128]) {
+      let distributed = 0n;
+      for (let rank = 0; rank < winners; rank += 1) {
+        distributed += rankReward(pool, winners, rank);
+      }
+      expect(distributed).toBe(pool);
+    }
+  });
+
+  it("derives Garbage Emperor from the finalized worst player", () => {
+    const epoch: EpochView = {
+      number: 1n,
+      phase: "complete",
+      phaseEndsAt: 0,
+      activeStartsAt: 0,
+      activeEndsAt: 0,
+      bondClaimEndsAt: 0,
+      participantCount: 2,
+      revealedCount: 2,
+      settledCount: 2,
+      eligibleCount: 2,
+      winnerCount: 1,
+      playerRewardPool: 0n,
+      keeperRewardPool: 0n,
+      worstPlayer: "worst",
+    };
+    expect(isGarbageEmperor("worst", epoch)).toBe(true);
+    expect(isGarbageEmperor("other", epoch)).toBe(false);
+    expect(isGarbageEmperor("worst", { ...epoch, phase: "active" })).toBe(false);
+  });
+
+  it("matches bond refund and keeper reward accounting", () => {
+    expect(bondRefundLamports("cancelled", false)).toBe(2_000_000n);
+    expect(bondRefundLamports("complete", true)).toBe(1_600_000n);
+    expect(bondRefundLamports("complete", false)).toBe(0n);
+    expect(bondRefundLamports("active", true)).toBe(0n);
+    expect(keeperReward(1_000_000n, 3, 20)).toBe(150_000n);
+    expect(keeperReward(1_000_000n, 3, 0)).toBe(0n);
+  });
+
+  it("only exposes rent recovery after claims and windows are safe", () => {
+    const base: EpochClaimView = {
+      epoch: 1n,
+      phase: "complete",
+      isCurrent: false,
+      registered: true,
+      revealed: true,
+      eligible: true,
+      settled: true,
+      isWinner: true,
+      rank: 1,
+      rewardAmount: 1_000n,
+      rewardClaimed: false,
+      bondRefund: 1_600_000n,
+      bondClaimed: false,
+      bondClaimEndsAt: 100,
+      keeperPlayersSettled: 0,
+      keeperRewardAmount: 0n,
+      keeperClaimed: false,
+      badges: 0,
+      worstPlayer: "someone",
+      claimWindowOpen: true,
+    };
+    expect(canClosePlayerAccounts(base)).toBe(false);
+    expect(canClosePlayerAccounts({ ...base, rewardClaimed: true })).toBe(false);
+    expect(canClosePlayerAccounts({
+      ...base,
+      rewardClaimed: true,
+      bondClaimed: true,
+    })).toBe(true);
+    expect(canClosePlayerAccounts({
+      ...base,
+      rewardClaimed: true,
+      bondClaimed: true,
+      claimWindowOpen: false,
+    })).toBe(true);
+    expect(canClosePlayerAccounts({
+      ...base,
+      phase: "cancelled",
+      eligible: false,
+      bondRefund: 2_000_000n,
+      bondClaimed: true,
+      isWinner: false,
+    })).toBe(true);
   });
 });
 

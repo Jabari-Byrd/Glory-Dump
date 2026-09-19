@@ -4,12 +4,14 @@ import { appConfig } from "./config";
 import { DemoGateway } from "./demo";
 import {
   badgeList,
+  canClosePlayerAccounts,
   formatCountdown,
   formatDump,
   formatGlory,
   heatAt,
   heatClearAt,
   heatCost,
+  isGarbageEmperor,
   minimumAction,
   noActionScoreForecast,
   parseDumpInput,
@@ -84,11 +86,49 @@ class StrategyRoom {
     element<HTMLButtonElement>("settleButton").addEventListener("click", () =>
       void this.lifecycle("Settling one player and collecting the caller bounty", () => this.gateway.settleNextPlayer()));
     element<HTMLButtonElement>("rewardButton").addEventListener("click", () =>
-      void this.lifecycle("Claiming earned GLORY", () => this.gateway.claimPlayerReward()));
+      this.lifecycle("Claiming earned GLORY", () => {
+        if (!this.snapshot) throw new Error("Connect a wallet first");
+        return this.gateway.claimPlayerReward(this.snapshot.epoch.number);
+      }));
     element<HTMLButtonElement>("bondButton").addEventListener("click", () =>
-      void this.lifecycle("Reclaiming the eligible entry bond", () => this.gateway.claimBond()));
+      this.lifecycle("Reclaiming the eligible entry bond", () => {
+        if (!this.snapshot) throw new Error("Connect a wallet first");
+        return this.gateway.claimBond(this.snapshot.epoch.number);
+      }));
     element<HTMLButtonElement>("badgesButton").addEventListener("click", () =>
-      void this.lifecycle("Synchronizing final achievement badges", () => this.gateway.refreshBadges()));
+      this.lifecycle("Synchronizing final achievement badges", () => {
+        if (!this.snapshot) throw new Error("Connect a wallet first");
+        return this.gateway.refreshBadges(this.snapshot.epoch.number);
+      }));
+    element<HTMLButtonElement>("refreshClaimsButton").addEventListener("click", () =>
+      void this.refreshNow("Claims refreshed."));
+    element("claimsList").addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-claim-action]");
+      if (!button) return;
+      const epochText = button.dataset.claimEpoch;
+      if (!epochText) return;
+      const epoch = BigInt(epochText);
+      const action = button.dataset.claimAction;
+      const labels: Record<string, string> = {
+        reward: "Claiming GLORY from epoch vault",
+        keeper: "Claiming keeper GLORY",
+        bond: "Reclaiming entry bond",
+        badges: "Synchronizing badges",
+        closePlayer: "Recovering player and lane rent",
+        closeKeeper: "Closing keeper credit",
+      };
+      const operations: Record<string, () => Promise<string>> = {
+        reward: () => this.gateway.claimPlayerReward(epoch),
+        keeper: () => this.gateway.claimKeeperReward(epoch),
+        bond: () => this.gateway.claimBond(epoch),
+        badges: () => this.gateway.refreshBadges(epoch),
+        closePlayer: () => this.gateway.closePlayerAccounts(epoch),
+        closeKeeper: () => this.gateway.closeKeeperCredit(epoch),
+      };
+      const operation = action ? operations[action] : undefined;
+      if (!operation) return;
+      void this.lifecycle(labels[action!] ?? "Updating epoch vault", operation);
+    });
     element<HTMLButtonElement>("backupSecretButton").addEventListener("click", () =>
       void this.secretOperation("Downloading the current reveal-secret backup", () =>
         this.gateway.exportRevealSecret()));
@@ -197,7 +237,7 @@ class StrategyRoom {
       this.render();
       this.setStatus(
         this.snapshot.mode === "live"
-          ? `Confirmed: ${shortAddress(signature, 8)}. Keep the downloaded reveal-secret backup safe.`
+          ? `Confirmed: ${shortAddress(signature, 8)}.`
           : `${label} complete in demo mode.`,
         "success",
       );
@@ -227,6 +267,22 @@ class StrategyRoom {
     }
   }
 
+  private async refreshNow(successMessage: string): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    this.syncButtons();
+    try {
+      this.snapshot = await this.gateway.refresh();
+      this.render();
+      this.setStatus(successMessage, "success");
+    } catch (error) {
+      this.setStatus(errorMessage(error), "error");
+    } finally {
+      this.busy = false;
+      this.syncButtons();
+    }
+  }
+
   private async refreshSilently(): Promise<void> {
     if (!this.snapshot || this.busy) return;
     try {
@@ -246,13 +302,15 @@ class StrategyRoom {
     this.renderAtlas();
     this.renderLeaderboard();
     this.renderFeed();
+    this.renderClaims();
     this.syncButtons();
   }
 
   private renderMode(): void {
     const mode = this.snapshot?.mode ?? (appConfig.liveEnabled ? "live" : "demo");
     text("modeBadge", mode.toUpperCase());
-    text("clusterLabel", this.snapshot?.clusterLabel ?? appConfig.clusterLabel);
+    const synced = this.snapshot ? ` · synced ${relativeTime(this.snapshot.lastSyncedAt)}` : "";
+    text("clusterLabel", `${this.snapshot?.clusterLabel ?? appConfig.clusterLabel}${synced}`);
     text("connectButton", mode === "live" && this.snapshot ? "CONNECTED" : "ENTER ROOM");
   }
 
@@ -325,7 +383,10 @@ class StrategyRoom {
     text("selfBalance", formatDump(self.balance));
     text("selfRank", rank >= 0 ? `#${rank + 1}` : "INELIGIBLE");
     this.renderLanes(self);
-    const badges = badgeList(self.badges);
+    const badges = badgeList(self.badges).filter(
+      (badge) => badge.label !== "Garbage Emperor"
+        || isGarbageEmperor(self.address, this.snapshot!.epoch),
+    );
     const shelf = element("badgeShelf");
     shelf.replaceChildren();
     if (badges.length === 0) {
@@ -804,6 +865,93 @@ class StrategyRoom {
     }
   }
 
+  private renderClaims(): void {
+    const list = element("claimsList");
+    list.replaceChildren();
+    if (!this.snapshot?.walletAddress) {
+      list.append(emptyMessage("Connect a wallet to inspect epoch claims."));
+      return;
+    }
+    const claims = this.snapshot.claims;
+    if (claims.length === 0) {
+      list.append(emptyMessage("No registered epochs found for this wallet."));
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    for (const claim of claims) {
+      const row = document.createElement("article");
+      row.className = `claim-row${claim.isCurrent ? " current" : ""}`;
+      const heading = document.createElement("div");
+      heading.className = "claim-heading";
+      const title = document.createElement("strong");
+      title.textContent = `EPOCH ${claim.epoch}${claim.isCurrent ? " // CURRENT" : ""}`;
+      const phase = document.createElement("span");
+      phase.textContent = claim.phase.toUpperCase();
+      heading.append(title, phase);
+
+      const summary = document.createElement("div");
+      summary.className = "claim-summary";
+      summary.append(
+        claimStat(
+          "GLORY",
+          claim.isWinner && claim.rewardAmount > 0n
+            ? `${formatGlory(claim.rewardAmount)}${claim.rank ? ` · #${claim.rank}` : ""}`
+            : "Not a winner",
+          claim.rewardClaimed,
+        ),
+        claimStat(
+          "BOND",
+          claim.bondRefund > 0n
+            ? formatSol(claim.bondRefund)
+            : claim.phase === "complete"
+              ? "Forfeited"
+              : "Not complete",
+          claim.bondClaimed,
+        ),
+        claimStat(
+          "KEEPER",
+          claim.keeperRewardAmount > 0n ? formatGlory(claim.keeperRewardAmount) : "None",
+          claim.keeperClaimed,
+        ),
+      );
+      if (claim.phase === "complete" || claim.phase === "cancelled") {
+        const deadline = document.createElement("small");
+        deadline.textContent = claim.claimWindowOpen
+          ? `Bond window closes ${formatCountdown(claim.bondClaimEndsAt, now)} from now.`
+          : "Bond claim window is closed; GLORY claims remain available.";
+        summary.append(deadline);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "claim-actions";
+      const addAction = (label: string, action: string): void => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button";
+        button.disabled = this.busy;
+        button.textContent = label;
+        button.dataset.claimAction = action;
+        button.dataset.claimEpoch = claim.epoch.toString();
+        actions.append(button);
+      };
+      if (claim.isWinner && !claim.rewardClaimed) addAction("CLAIM GLORY", "reward");
+      if (claim.keeperRewardAmount > 0n && !claim.keeperClaimed) addAction("CLAIM KEEPER", "keeper");
+      if (claim.bondRefund > 0n && !claim.bondClaimed && claim.claimWindowOpen) {
+        addAction("RECLAIM BOND", "bond");
+      }
+      if (claim.phase === "complete" && claim.settled) addAction("SYNC BADGE", "badges");
+      if (canClosePlayerAccounts(claim)) addAction("RECOVER RENT", "closePlayer");
+      if (claim.keeperPlayersSettled > 0 && (claim.keeperClaimed || claim.keeperRewardAmount === 0n)) {
+        addAction("CLOSE KEEPER", "closeKeeper");
+      }
+      if (actions.childElementCount === 0) {
+        actions.append(emptyMessage("No claim or cleanup action is currently available."));
+      }
+      row.append(heading, summary, actions);
+      list.append(row);
+    }
+  }
+
   private setHeat(kind: "dump" | "absorb", value: number): void {
     const percent = Math.max(0, Math.min(100, value / 100));
     text(`${kind}HeatLabel`, `${percent.toFixed(0)}%`);
@@ -823,6 +971,8 @@ class StrategyRoom {
     element<HTMLButtonElement>("rewardButton").disabled = this.busy || !epoch || epoch.phase !== "complete" || !self?.isWinner || self.rewardClaimed;
     element<HTMLButtonElement>("bondButton").disabled = this.busy || !epoch || !["complete", "cancelled"].includes(epoch.phase) || !self || self.bondClaimed;
     element<HTMLButtonElement>("badgesButton").disabled = this.busy || !epoch || epoch.phase !== "complete" || !self?.settled;
+    element<HTMLButtonElement>("refreshClaimsButton").disabled =
+      this.busy || !this.snapshot?.walletAddress;
     element<HTMLButtonElement>("backupSecretButton").disabled = this.busy || !this.snapshot?.walletAddress || !self;
     element<HTMLInputElement>("restoreSecretInput").disabled = this.busy || !this.snapshot?.walletAddress || !self;
   }
@@ -861,6 +1011,26 @@ function laneStat(label: string, value: string): HTMLElement {
   amount.textContent = value;
   row.append(name, amount);
   return row;
+}
+
+function claimStat(label: string, value: string, claimed: boolean): HTMLElement {
+  const row = document.createElement("span");
+  if (claimed) row.className = "claimed";
+  const name = document.createElement("small");
+  name.textContent = label;
+  const result = document.createElement("strong");
+  result.textContent = claimed ? `${value} ✓` : value;
+  row.append(name, result);
+  return row;
+}
+
+function formatSol(lamports: bigint): string {
+  const whole = lamports / 1_000_000_000n;
+  const fraction = (lamports % 1_000_000_000n)
+    .toString()
+    .padStart(9, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction} SOL` : `${whole} SOL`;
 }
 
 function previewLine(label: string, value: string, warning = false): HTMLElement {

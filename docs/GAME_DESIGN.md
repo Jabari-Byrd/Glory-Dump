@@ -193,6 +193,10 @@ Badges carry no GLORY bonus and cannot override standings:
 
 They make losing histories legible and give the community bragging rights without turning side quests into pay-to-win stat bonuses.
 
+Garbage Emperor is derived from the finalized `worst_player` after completion. The client displays
+that record directly, while `refresh_badges` remains an optional on-chain materialization step for
+clients that want the badge bits stored in the player account.
+
 ## V4 simulator candidate
 
 The committed program still follows every v3 rule above. The following candidate exists only in `glory-dump-sim` so pacing and coalition ideas can be rejected cheaply before they touch accounts or the IDL:

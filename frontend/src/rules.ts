@@ -1,8 +1,10 @@
 import type {
+  EpochClaimView,
   EpochView,
   FeedItem,
   HeatView,
   LaneView,
+  Phase,
   PlayerView,
   ScoreForecastPoint,
   ThreatView,
@@ -15,6 +17,8 @@ export const HEAT_RECOVERY_SECONDS = 6 * 60 * 60;
 export const MIN_ACTION_BPS = 10n;
 export const BPS_DENOMINATOR = 10_000n;
 export const GLORY_SCALE = 1_000_000n;
+export const REGISTRATION_BOND_LAMPORTS = 2_000_000n;
+export const ELIGIBLE_BOND_REFUND_LAMPORTS = 1_600_000n;
 
 export const BADGES = [
   { bit: 1 << 0, label: "Escape Artist", icon: "↘" },
@@ -26,6 +30,54 @@ export const BADGES = [
 
 export function minimumAction(startingAllocation: bigint): bigint {
   return divCeil(startingAllocation * MIN_ACTION_BPS, BPS_DENOMINATOR);
+}
+
+export function rankReward(
+  totalPlayerPool: bigint,
+  winners: number,
+  zeroBasedRank: number,
+): bigint {
+  if (winners <= 0 || zeroBasedRank < 0 || zeroBasedRank >= winners) return 0n;
+  const winnerCount = BigInt(winners);
+  const rank = BigInt(zeroBasedRank);
+  const weight = winnerCount * 2n - rank;
+  const totalWeight = winnerCount * (winnerCount * 3n + 1n) / 2n;
+  const ordinary = totalPlayerPool * weight / totalWeight;
+  if (rank !== 0n) return ordinary;
+
+  let distributed = 0n;
+  for (let current = 0n; current < winnerCount; current += 1n) {
+    distributed += totalPlayerPool * (winnerCount * 2n - current) / totalWeight;
+  }
+  return ordinary + totalPlayerPool - distributed;
+}
+
+export function bondRefundLamports(phase: Phase, eligible: boolean): bigint {
+  if (phase === "cancelled") return REGISTRATION_BOND_LAMPORTS;
+  if (phase === "complete" && eligible) return ELIGIBLE_BOND_REFUND_LAMPORTS;
+  return 0n;
+}
+
+export function keeperReward(
+  totalKeeperPool: bigint,
+  settledByKeeper: number,
+  participantCount: number,
+): bigint {
+  if (participantCount <= 0) return 0n;
+  return totalKeeperPool * BigInt(settledByKeeper) / BigInt(participantCount);
+}
+
+export function isGarbageEmperor(address: string, epoch: EpochView): boolean {
+  return epoch.phase === "complete" && epoch.worstPlayer === address;
+}
+
+export function canClosePlayerAccounts(claim: EpochClaimView): boolean {
+  if (claim.phase !== "complete" && claim.phase !== "cancelled") return false;
+  const claimWindowClosed = !claim.claimWindowOpen;
+  if (claim.phase === "cancelled") return claim.bondClaimed || claimWindowClosed;
+  if (!claim.settled) return false;
+  if (claim.eligible && !claim.bondClaimed && !claimWindowClosed) return false;
+  return !claim.isWinner || claim.rewardClaimed;
 }
 
 export function heatAt(heat: HeatView, now: number): number {

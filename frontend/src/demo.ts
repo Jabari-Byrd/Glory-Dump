@@ -9,6 +9,7 @@ import {
 } from "./rules";
 import type {
   ActionRequest,
+  EpochClaimView,
   FeedItem,
   GameGateway,
   LaneView,
@@ -56,6 +57,7 @@ export class DemoGateway implements GameGateway {
         phaseEndsAt: activeEndsAt,
         activeStartsAt,
         activeEndsAt,
+        bondClaimEndsAt: 0,
         participantCount: 84,
         revealedCount: 79,
         settledCount: 0,
@@ -63,12 +65,15 @@ export class DemoGateway implements GameGateway {
         winnerCount: 5,
         playerRewardPool: 90_125n * 1_000_000n,
         keeperRewardPool: 875n * 1_000_000n,
+        worstPlayer: "",
       },
       players,
+      claims: [demoClaim()],
       feed: initialFeed(now, players),
       walletAddress: SELF_ADDRESS,
       gloryBalance: 1_240_500_000n,
       clusterLabel: "Strategy Room demo",
+      lastSyncedAt: now,
     };
   }
 
@@ -79,6 +84,7 @@ export class DemoGateway implements GameGateway {
   async refresh(): Promise<StrategySnapshot> {
     const copy = structuredClone(this.snapshot);
     const now = Math.floor(Date.now() / 1000);
+    copy.lastSyncedAt = now;
     for (const player of copy.players) {
       if (!player.settled) {
         player.projectedScore = projectedPlayerScore(
@@ -219,7 +225,15 @@ export class DemoGateway implements GameGateway {
     return "demo-settle";
   }
 
-  async claimPlayerReward(): Promise<string> {
+  async claimPlayerReward(epoch: bigint): Promise<string> {
+    const claim = this.snapshot.claims.find((candidate) => candidate.epoch === epoch);
+    if (claim) {
+      if (!claim.isWinner) throw new Error("The demo wallet is not in that epoch's winner set");
+      if (claim.rewardClaimed) throw new Error("The demo reward was already claimed");
+      claim.rewardClaimed = true;
+      this.unshiftFeed({ kind: "reward", message: `Demo GLORY claimed for epoch ${epoch}.` });
+      return "demo-glory";
+    }
     const player = this.snapshot.players.find((candidate) => candidate.isSelf);
     if (!player?.isWinner) throw new Error("The demo wallet is not currently in the winner set");
     if (player.rewardClaimed) throw new Error("The demo reward was already claimed");
@@ -228,7 +242,26 @@ export class DemoGateway implements GameGateway {
     return "demo-glory";
   }
 
-  async claimBond(): Promise<string> {
+  async claimKeeperReward(epoch: bigint): Promise<string> {
+    const claim = this.snapshot.claims.find((candidate) => candidate.epoch === epoch);
+    if (!claim || claim.keeperRewardAmount === 0n) {
+      throw new Error("The demo wallet has no keeper reward for that epoch");
+    }
+    if (claim.keeperClaimed) throw new Error("The demo keeper reward was already claimed");
+    claim.keeperClaimed = true;
+    this.unshiftFeed({ kind: "reward", message: `Demo keeper GLORY claimed for epoch ${epoch}.` });
+    return "demo-keeper-glory";
+  }
+
+  async claimBond(epoch: bigint): Promise<string> {
+    const claim = this.snapshot.claims.find((candidate) => candidate.epoch === epoch);
+    if (claim) {
+      if (claim.bondRefund === 0n) throw new Error("The demo wallet cannot reclaim that epoch's bond");
+      if (claim.bondClaimed) throw new Error("The demo bond was already claimed");
+      claim.bondClaimed = true;
+      this.unshiftFeed({ kind: "reward", message: `Demo bond reclaimed for epoch ${epoch}.` });
+      return "demo-bond";
+    }
     const player = this.snapshot.players.find((candidate) => candidate.isSelf);
     if (!player) throw new Error("Demo player is missing");
     if (player.bondClaimed) throw new Error("The demo bond was already claimed");
@@ -237,9 +270,25 @@ export class DemoGateway implements GameGateway {
     return "demo-bond";
   }
 
-  async refreshBadges(): Promise<string> {
+  async refreshBadges(epoch: bigint): Promise<string> {
+    const claim = this.snapshot.claims.find((candidate) => candidate.epoch === epoch);
+    if (claim) {
+      claim.badges = claim.badges || (claim.worstPlayer === SELF_ADDRESS ? 1 << 4 : 0);
+      this.unshiftFeed({ kind: "system", message: `Demo badges synchronized for epoch ${epoch}.` });
+      return "demo-badges";
+    }
     this.unshiftFeed({ kind: "system", message: "Demo badges synchronized." });
     return "demo-badges";
+  }
+
+  async closePlayerAccounts(epoch: bigint): Promise<string> {
+    this.unshiftFeed({ kind: "system", message: `Demo rent recovery closed epoch ${epoch} accounts.` });
+    return "demo-close-player";
+  }
+
+  async closeKeeperCredit(epoch: bigint): Promise<string> {
+    this.unshiftFeed({ kind: "system", message: `Demo keeper credit closed for epoch ${epoch}.` });
+    return "demo-close-keeper";
   }
 
   async exportRevealSecret(): Promise<void> {
@@ -322,6 +371,32 @@ function initialFeed(now: number, players: PlayerView[]): FeedItem[] {
       message: "Final-week score weighting is now 2.61× opening-week weight.",
     },
   ];
+}
+
+function demoClaim(): EpochClaimView {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    epoch: 18n,
+    phase: "complete",
+    isCurrent: false,
+    registered: true,
+    revealed: true,
+    eligible: true,
+    settled: true,
+    isWinner: true,
+    rank: 2,
+    rewardAmount: 12_500n * 1_000_000n,
+    rewardClaimed: false,
+    bondRefund: 1_600_000n,
+    bondClaimed: false,
+    bondClaimEndsAt: now + 5 * 86_400,
+    keeperPlayersSettled: 12,
+    keeperRewardAmount: 50n * 1_000_000n,
+    keeperClaimed: false,
+    badges: 1 << 4,
+    worstPlayer: SELF_ADDRESS,
+    claimWindowOpen: true,
+  };
 }
 
 function feed(

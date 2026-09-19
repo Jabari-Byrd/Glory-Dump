@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use glory_dump_core as rules;
 use serde::{Deserialize, Serialize};
 
-pub const REPORT_SCHEMA: &str = "glory-dump-simulation-report-v2";
+pub const REPORT_SCHEMA: &str = "glory-dump-simulation-report-v3";
 pub const GLOBAL_SCALE_REPORT_SCHEMA: &str = "glory-dump-global-scale-report-v1";
 const LATE_WINDOW_BPS: u64 = 9_000;
 const MAX_DECISION_ROUNDS: u32 = 1_440;
@@ -143,6 +143,7 @@ pub struct ResearchRules {
     pub target_absorb_relief_cap_bps_per_chapter: u64,
     pub target_inbound_cap_bps_per_chapter: u64,
     pub coalition_coordination_cost_lamports_per_helper_epoch: u64,
+    pub winner_cap: Option<u16>,
 }
 
 impl Default for ResearchRules {
@@ -159,6 +160,7 @@ impl Default for ResearchRules {
             target_absorb_relief_cap_bps_per_chapter: 0,
             target_inbound_cap_bps_per_chapter: 0,
             coalition_coordination_cost_lamports_per_helper_epoch: 0,
+            winner_cap: None,
         }
     }
 }
@@ -180,6 +182,7 @@ impl ResearchRules {
             target_absorb_relief_cap_bps_per_chapter: 2_500,
             target_inbound_cap_bps_per_chapter: 0,
             coalition_coordination_cost_lamports_per_helper_epoch: 100_000,
+            winner_cap: None,
         }
     }
 
@@ -317,6 +320,7 @@ impl SimulationConfig {
             || self.research.target_absorb_relief_cap_bps_per_chapter > rules::BPS_DENOMINATOR
             || self.research.target_inbound_cap_bps_per_chapter > 50_000
             || !(1..=16).contains(&self.research.max_intents_per_window)
+            || self.research.winner_cap == Some(0)
         {
             return Err(SimulationError::InvalidConfig(
                 "invalid research capacity, carry, relief-cap, or batch setting".into(),
@@ -516,6 +520,7 @@ pub struct SimulationReport {
     pub action_fee_model: &'static str,
     pub totals: TotalsReport,
     pub strategies: Vec<StrategyReport>,
+    pub coalition_economics: Vec<CoalitionEconomics>,
     pub starting_tiers: Vec<TierReport>,
     pub balance_signals: Vec<BalanceSignal>,
     pub epoch_samples: Vec<EpochSummary>,
@@ -582,6 +587,24 @@ pub struct StrategyReport {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct CoalitionEconomics {
+    pub strategy: Strategy,
+    pub controller_player_epochs: u64,
+    pub helper_player_epochs: u64,
+    pub controller_wins: u64,
+    pub controller_win_rate: f64,
+    pub controller_relative_win_advantage: f64,
+    pub controller_glory_earned: u64,
+    pub coalition_glory_earned: u64,
+    pub controller_glory_share_of_coalition: f64,
+    pub total_coalition_cost_lamports: u128,
+    pub helper_cost_lamports: u128,
+    pub controller_break_even_glory_price_lamports: Option<u128>,
+    pub controller_hypothetical_net_lamports: i128,
+    pub profitable_at_configured_price: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct TierReport {
     pub tier_billions: u64,
     pub player_epochs: u64,
@@ -599,7 +622,7 @@ pub struct BalanceSignal {
     pub message: String,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalSeverity {
     Information,
@@ -1190,7 +1213,19 @@ pub fn simulate(config: SimulationConfig) -> Result<SimulationReport, Simulation
             },
         })
         .collect::<Vec<_>>();
-    let balance_signals = build_signals(&totals, &strategy_reports, &tier_reports, canonical_rules);
+    let coalition_economics = strategy_reports
+        .iter()
+        .filter(|report| report.coalition_helper_player_epochs > 0)
+        .map(|report| coalition_economics_for(report, config.hypothetical_glory_price_lamports))
+        .collect::<Vec<_>>();
+    let balance_signals = build_signals(
+        &totals,
+        &strategy_reports,
+        &coalition_economics,
+        &tier_reports,
+        canonical_rules,
+        config.hypothetical_glory_price_lamports,
+    );
 
     Ok(SimulationReport {
         schema: REPORT_SCHEMA,
@@ -1208,6 +1243,7 @@ pub fn simulate(config: SimulationConfig) -> Result<SimulationReport, Simulation
         config,
         totals,
         strategies: strategy_reports,
+        coalition_economics,
         starting_tiers: tier_reports,
         balance_signals,
         epoch_samples,
@@ -2359,10 +2395,18 @@ fn simulated_winner_count(eligible_players: u32, research: &ResearchRules) -> u1
     if research.is_canonical() {
         return rules::winner_count(eligible_players);
     }
+    // Research populations above the committed 2,560-player bound explore a
+    // future arena without the current 128-winner leaderboard cap. Keep this
+    // divergence explicit; large-population economics depend on the winner-set
+    // contract chosen for that arena.
     if eligible_players < rules::MIN_REWARDED_PLAYERS {
         return 0;
     }
-    let count = (u64::from(eligible_players) * rules::WINNER_BPS).div_ceil(rules::BPS_DENOMINATOR);
+    let mut count =
+        (u64::from(eligible_players) * rules::WINNER_BPS).div_ceil(rules::BPS_DENOMINATOR);
+    if let Some(cap) = research.winner_cap {
+        count = count.min(u64::from(cap));
+    }
     u16::try_from(count).unwrap_or(u16::MAX)
 }
 
@@ -2487,11 +2531,55 @@ fn two_players_mut(
     }
 }
 
+fn coalition_economics_for(
+    report: &StrategyReport,
+    glory_price_lamports: u64,
+) -> CoalitionEconomics {
+    let total_cost = report.estimated_total_cost_lamports;
+    let coordination = report.estimated_coordination_cost_lamports;
+    let non_coordination = total_cost.saturating_sub(coordination);
+    let helper_share = if report.player_epochs == 0 {
+        0.0
+    } else {
+        report.coalition_helper_player_epochs as f64 / report.player_epochs as f64
+    };
+    let helper_cost = (non_coordination as f64 * helper_share).round() as u128 + coordination;
+    let controller_glory = u128::from(report.controller_glory_earned);
+    let controller_break_even = (report.controller_glory_earned > 0)
+        .then(|| (total_cost * u128::from(rules::GLORY_SCALE)).div_ceil(controller_glory));
+    let proceeds =
+        controller_glory * u128::from(glory_price_lamports) / u128::from(rules::GLORY_SCALE);
+    let net = saturating_i128(proceeds).saturating_sub(saturating_i128(total_cost));
+
+    CoalitionEconomics {
+        strategy: report.strategy,
+        controller_player_epochs: report.controller_player_epochs,
+        helper_player_epochs: report.coalition_helper_player_epochs,
+        controller_wins: report.controller_wins,
+        controller_win_rate: report.controller_win_rate,
+        controller_relative_win_advantage: report.controller_relative_win_advantage,
+        controller_glory_earned: report.controller_glory_earned,
+        coalition_glory_earned: report.glory_earned,
+        controller_glory_share_of_coalition: if report.glory_earned == 0 {
+            0.0
+        } else {
+            report.controller_glory_earned as f64 / report.glory_earned as f64
+        },
+        total_coalition_cost_lamports: total_cost,
+        helper_cost_lamports: helper_cost,
+        controller_break_even_glory_price_lamports: controller_break_even,
+        controller_hypothetical_net_lamports: net,
+        profitable_at_configured_price: net > 0,
+    }
+}
+
 fn build_signals(
     totals: &TotalsReport,
     strategies: &[StrategyReport],
+    coalitions: &[CoalitionEconomics],
     tiers: &[TierReport],
     canonical: bool,
+    glory_price_lamports: u64,
 ) -> Vec<BalanceSignal> {
     let mut signals = Vec::new();
     if !canonical {
@@ -2554,32 +2642,64 @@ fn build_signals(
             ),
         });
     }
-    let nonzero_tiers = tiers
-        .iter()
-        .filter(|tier| tier.wins > 0 && tier.player_epochs > 0)
-        .collect::<Vec<_>>();
-    if let (Some(low), Some(high)) = (
-        nonzero_tiers
-            .iter()
-            .min_by(|a, b| a.win_rate.total_cmp(&b.win_rate)),
-        nonzero_tiers
-            .iter()
-            .max_by(|a, b| a.win_rate.total_cmp(&b.win_rate)),
-    ) {
-        let ratio = if low.win_rate == 0.0 {
-            0.0
-        } else {
-            high.win_rate / low.win_rate
+    for coalition in coalitions {
+        if coalition.controller_relative_win_advantage < 2.0 {
+            continue;
+        }
+        let (severity, message) = match coalition.controller_break_even_glory_price_lamports {
+            Some(break_even)
+                if glory_price_lamports > 0 && coalition.profitable_at_configured_price =>
+            {
+                (
+                    SignalSeverity::Risk,
+                    format!(
+                        "The modeled {} bot army is profitable at the configured GLORY price: controller advantage {:.2}x, {} helper player-epochs, controller net {} lamports, break-even {} lamports per whole GLORY.",
+                        coalition.strategy,
+                        coalition.controller_relative_win_advantage,
+                        coalition.helper_player_epochs,
+                        coalition.controller_hypothetical_net_lamports,
+                        break_even,
+                    ),
+                )
+            }
+            Some(break_even) if glory_price_lamports > 0 => (
+                SignalSeverity::Watch,
+                format!(
+                    "The modeled {} bot army has a {:.2}x controller advantage across {} helper player-epochs, but its net at the configured GLORY price is {} lamports; break-even is {} lamports per whole GLORY.",
+                    coalition.strategy,
+                    coalition.controller_relative_win_advantage,
+                    coalition.helper_player_epochs,
+                    coalition.controller_hypothetical_net_lamports,
+                    break_even,
+                ),
+            ),
+            Some(break_even) => (
+                SignalSeverity::Information,
+                format!(
+                    "The modeled {} bot army has a {:.2}x controller advantage across {} helper player-epochs; modeled break-even GLORY price is {} lamports per whole GLORY.",
+                    coalition.strategy,
+                    coalition.controller_relative_win_advantage,
+                    coalition.helper_player_epochs,
+                    break_even,
+                ),
+            ),
+            None => (
+                SignalSeverity::Information,
+                format!(
+                    "The modeled {} bot army has a {:.2}x controller advantage across {} helper player-epochs but earned no controller GLORY in this run.",
+                    coalition.strategy,
+                    coalition.controller_relative_win_advantage,
+                    coalition.helper_player_epochs,
+                ),
+            ),
         };
         signals.push(BalanceSignal {
-            severity: if ratio >= 5.0 { SignalSeverity::Risk } else if ratio >= 3.0 { SignalSeverity::Watch } else { SignalSeverity::Information },
-            code: "starting_tier_advantage",
-            message: format!(
-                "The strongest observed starting tier wins {:.2}x as often as the weakest tier with a nonzero win count.",
-                ratio
-            ),
+            severity,
+            code: "bot_army_economics",
+            message,
         });
     }
+    signals.extend(starting_tier_signals(tiers));
     let guard_use = if totals.guard_created == 0 {
         0.0
     } else {
@@ -2597,15 +2717,14 @@ fn build_signals(
             guard_use * 100.0
         ),
     });
-    if totals.final_window_winner_turnover_rate > 0.5 {
-        signals.push(BalanceSignal {
-            severity: SignalSeverity::Watch,
-            code: "endgame_volatility",
-            message: format!(
-                "{:.1}% of final winners entered the winner set during the last tenth of the epoch.",
-                totals.final_window_winner_turnover_rate * 100.0
-            ),
-        });
+    if let Some(signal) = endgame_turnover_signal(totals.final_window_winner_turnover_rate) {
+        signals.push(signal);
+    }
+    if let Some(signal) = target_concentration_signal(totals.mean_target_concentration) {
+        signals.push(signal);
+    }
+    if let Some(signal) = glory_concentration_signal(totals.glory_gini) {
+        signals.push(signal);
     }
     if totals.inactive_epochs > 0 {
         signals.push(BalanceSignal {
@@ -2619,6 +2738,140 @@ fn build_signals(
         });
     }
     signals
+}
+
+fn starting_tier_signals(tiers: &[TierReport]) -> Vec<BalanceSignal> {
+    let sampled = tiers
+        .iter()
+        .filter(|tier| tier.player_epochs > 0)
+        .collect::<Vec<_>>();
+    let mut signals = Vec::new();
+    if let Some(dead) = sampled
+        .iter()
+        .filter(|tier| tier.wins == 0 && tier.player_epochs >= 100)
+        .min_by_key(|tier| tier.tier_billions)
+    {
+        signals.push(BalanceSignal {
+            severity: SignalSeverity::Risk,
+            code: "starting_tier_locked_out",
+            message: format!(
+                "Starting tier {}B never won in {} player-epochs; the signal no longer hides zero-win tiers.",
+                dead.tier_billions, dead.player_epochs
+            ),
+        });
+    }
+    let winning = sampled
+        .iter()
+        .filter(|tier| tier.wins > 0 && tier.win_rate > 0.0)
+        .collect::<Vec<_>>();
+    if let (Some(low), Some(high)) = (
+        winning
+            .iter()
+            .min_by(|a, b| a.win_rate.total_cmp(&b.win_rate)),
+        winning
+            .iter()
+            .max_by(|a, b| a.win_rate.total_cmp(&b.win_rate)),
+    ) {
+        let ratio = high.win_rate / low.win_rate;
+        signals.push(BalanceSignal {
+            severity: if ratio >= 5.0 {
+                SignalSeverity::Risk
+            } else if ratio >= 3.0 {
+                SignalSeverity::Watch
+            } else {
+                SignalSeverity::Information
+            },
+            code: "starting_tier_advantage",
+            message: format!(
+                "The strongest observed starting tier wins {:.2}x as often as the weakest winning tier.",
+                ratio
+            ),
+        });
+    } else if sampled.len() >= 2 {
+        signals.push(BalanceSignal {
+            severity: SignalSeverity::Risk,
+            code: "starting_tier_lockout",
+            message: format!(
+                "Fewer than two of the {} sampled starting tiers produced a winner.",
+                sampled.len()
+            ),
+        });
+    }
+    signals
+}
+
+fn endgame_turnover_signal(rate: f64) -> Option<BalanceSignal> {
+    let (severity, code, message) = if rate > 0.75 {
+        (
+            SignalSeverity::Risk,
+            "endgame_volatility",
+            format!(
+                "{:.1}% of final winners entered the winner set during the last tenth of the epoch; the predeclared instability bound is 50%.",
+                rate * 100.0
+            ),
+        )
+    } else if rate > 0.50 {
+        (
+            SignalSeverity::Watch,
+            "endgame_volatility",
+            format!(
+                "{:.1}% of final winners entered the winner set during the last tenth of the epoch; the predeclared instability bound is 50%.",
+                rate * 100.0
+            ),
+        )
+    } else if rate < 0.10 {
+        (
+            SignalSeverity::Watch,
+            "endgame_stale",
+            format!(
+                "Only {:.1}% of final winners entered the winner set during the last tenth of the epoch; the predeclared healthy floor is 10%.",
+                rate * 100.0
+            ),
+        )
+    } else {
+        return None;
+    };
+    Some(BalanceSignal {
+        severity,
+        code,
+        message,
+    })
+}
+
+fn target_concentration_signal(mean_target_concentration: f64) -> Option<BalanceSignal> {
+    if mean_target_concentration < 0.25 {
+        return None;
+    }
+    Some(BalanceSignal {
+        severity: if mean_target_concentration >= 0.35 {
+            SignalSeverity::Risk
+        } else {
+            SignalSeverity::Watch
+        },
+        code: "target_concentration",
+        message: format!(
+            "The mean maximum target share was {:.1}%; the predeclared healthy bound is 25%.",
+            mean_target_concentration * 100.0
+        ),
+    })
+}
+
+fn glory_concentration_signal(glory_gini: f64) -> Option<BalanceSignal> {
+    if glory_gini < 0.65 {
+        return None;
+    }
+    Some(BalanceSignal {
+        severity: if glory_gini >= 0.75 {
+            SignalSeverity::Risk
+        } else {
+            SignalSeverity::Watch
+        },
+        code: "glory_concentration",
+        message: format!(
+            "GLORY Gini across persistent bot identities was {:.3}; the predeclared healthy bound is 0.650.",
+            glory_gini
+        ),
+    })
 }
 
 fn ratio(value: u64, denominator: u64) -> f64 {
@@ -2792,6 +3045,106 @@ mod tests {
             assert_eq!(row.controller_player_epochs, 2);
             assert!(row.player_epochs > row.controller_player_epochs);
         }
+    }
+
+    #[test]
+    fn starting_tier_signals_flag_zero_win_tiers() {
+        let tiers = vec![
+            TierReport {
+                tier_billions: 1,
+                player_epochs: 250,
+                eligible_player_epochs: 250,
+                wins: 0,
+                win_rate: 0.0,
+                all_player_win_rate: 0.0,
+                mean_final_score_ratio: 1.0,
+            },
+            TierReport {
+                tier_billions: 2,
+                player_epochs: 250,
+                eligible_player_epochs: 250,
+                wins: 25,
+                win_rate: 0.1,
+                all_player_win_rate: 0.1,
+                mean_final_score_ratio: 1.0,
+            },
+        ];
+        let signals = starting_tier_signals(&tiers);
+        assert!(signals.iter().any(|signal| {
+            signal.code == "starting_tier_locked_out" && signal.severity == SignalSeverity::Risk
+        }));
+    }
+
+    #[test]
+    fn concentration_and_turnover_signals_follow_predeclared_bands() {
+        assert!(matches!(
+            endgame_turnover_signal(0.87).map(|signal| signal.severity),
+            Some(SignalSeverity::Risk)
+        ));
+        assert!(matches!(
+            endgame_turnover_signal(0.04).map(|signal| signal.severity),
+            Some(SignalSeverity::Watch)
+        ));
+        assert!(endgame_turnover_signal(0.3).is_none());
+        assert!(matches!(
+            target_concentration_signal(0.27).map(|signal| signal.severity),
+            Some(SignalSeverity::Watch)
+        ));
+        assert!(matches!(
+            target_concentration_signal(0.36).map(|signal| signal.severity),
+            Some(SignalSeverity::Risk)
+        ));
+        assert!(matches!(
+            glory_concentration_signal(0.66).map(|signal| signal.severity),
+            Some(SignalSeverity::Watch)
+        ));
+        assert!(matches!(
+            glory_concentration_signal(0.76).map(|signal| signal.severity),
+            Some(SignalSeverity::Risk)
+        ));
+    }
+
+    #[test]
+    fn bot_army_economics_prices_controller_break_even() {
+        let report = StrategyReport {
+            strategy: Strategy::SacrificialSybil,
+            player_epochs: 100,
+            eligible_player_epochs: 90,
+            wins: 10,
+            win_rate: 0.1,
+            winner_share: 0.1,
+            relative_win_advantage: 2.0,
+            controller_player_epochs: 10,
+            controller_wins: 5,
+            controller_win_rate: 0.5,
+            controller_relative_win_advantage: 5.0,
+            controller_glory_earned: 10_000 * rules::GLORY_SCALE,
+            mean_rank_percentile: 0.5,
+            mean_final_score_ratio: 1.0,
+            mean_actions: 10.0,
+            glory_earned: 20_000 * rules::GLORY_SCALE,
+            estimated_fees_lamports: 1_000_000,
+            estimated_bond_cost_lamports: 1_000_000,
+            coalition_helper_player_epochs: 90,
+            estimated_coordination_cost_lamports: 9_000_000,
+            estimated_total_cost_lamports: 11_000_000,
+            break_even_glory_price_lamports: None,
+            hypothetical_glory_value_lamports: 0,
+            hypothetical_net_before_rent_lamports: 0,
+            hypothetical_return_on_cost: None,
+        };
+        let expensive = coalition_economics_for(&report, 1_000);
+        assert_eq!(
+            expensive.controller_break_even_glory_price_lamports,
+            Some(1_100)
+        );
+        assert!(!expensive.profitable_at_configured_price);
+        assert_eq!(expensive.controller_hypothetical_net_lamports, -1_000_000);
+        assert_eq!(expensive.helper_cost_lamports, 10_800_000);
+
+        let profitable = coalition_economics_for(&report, 2_000);
+        assert!(profitable.profitable_at_configured_price);
+        assert_eq!(profitable.controller_hypothetical_net_lamports, 9_000_000);
     }
 
     #[test]
@@ -3144,6 +3497,11 @@ mod tests {
         };
         assert!(research.validate().is_ok());
         assert_eq!(simulated_winner_count(50_000, &research.research), 2_500);
+        let capped = ResearchRules {
+            winner_cap: Some(128),
+            ..ResearchRules::v4_candidate()
+        };
+        assert_eq!(simulated_winner_count(50_000, &capped), 128);
     }
 
     #[test]

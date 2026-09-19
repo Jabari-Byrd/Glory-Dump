@@ -94,6 +94,24 @@
         </div>
       </details>
 
+      <details class="operations-panel claims-panel" open>
+        <summary>EPOCH VAULTS // CLAIMS + RENT RECOVERY</summary>
+        <div class="operations-grid">
+          <div class="operation-copy">
+            <strong>Old epochs stay claimable</strong>
+            <small>
+              GLORY claims do not expire. Bond refunds stay open for seven days after completion or
+              cancellation. This panel follows every epoch this wallet joined, even after the next
+              epoch opens.
+            </small>
+          </div>
+          <button id="refreshClaimsButton" class="button" type="button">REFRESH CLAIMS</button>
+          <div id="claimsList" class="claims-list" aria-live="polite">
+            <span class="empty-copy">Connect a wallet to inspect previous epochs.</span>
+          </div>
+        </div>
+      </details>
+
       <section class="strategy-layout">
         <article class="command-deck panel-cut">
           <div class="section-title">
